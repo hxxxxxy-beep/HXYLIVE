@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Media - HXYLIVE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=116">
+  <script src="/static/loader.js?v=4"></script>
+  <script defer src="/static/media.js?v=88"></script>
+</head>
+<body>
+  <div id="header-placeholder"></div>
+
+  <main class="container media-page">
+    <section class="media-recent-section" aria-label="Recent media">
+      <div class="media-section-heading">
+        <div class="media-recent-heading-copy">
+          <h2 id="mediaRecentTitle">All videos</h2>
+          <div class="media-section-subtitle" id="mediaResultMeta">Loading...</div>
+          <div class="media-search-wrap media-video-search-wrap">
+            <span aria-hidden="true">&#8981;</span>
+            <input id="mediaVideoSearchInput" type="search" placeholder="Search Video" autocomplete="off">
+          </div>
+        </div>
+        <div class="media-batch-actions">
+          <button class="media-action-btn" id="mediaSelectAllBtn" type="button">Select all</button>
+          <button class="media-action-btn" id="mediaInvertSelectionBtn" type="button">Invert selection</button>
+          <button class="media-action-btn primary" id="mediaDownloadSelectedBtn" type="button" disabled>Download selected (0)</button>
+          <button class="media-action-btn danger" id="mediaDeleteSelectedBtn" type="button" disabled>Delete selected (0)</button>
+        </div>
+      </div>
+
+      <section class="media-controls" aria-label="Media filters">
+        <div class="media-sort-buttons" id="mediaSortButtons" aria-label="Sort">
+          <button type="button" data-sort="newest">Newest first</button>
+          <button type="button" data-sort="oldest">Oldest first</button>
+          <button type="button" data-sort="largest">Largest first</button>
+          <button type="button" data-sort="smallest">Smallest first</button>
+          <button type="button" data-sort="name">Name</button>
+        </div>
+        <div class="media-filter-actions">
+          <div class="media-device-filters" id="mediaDeviceFilters" aria-label="Device">
+            <button type="button" class="media-device-btn active" data-device="all" title="Show VPS and Mac videos together">All</button>
+            <button type="button" class="media-device-btn" data-device="vps" title="Show VPS videos only">VPS</button>
+            <button type="button" class="media-device-btn" data-device="mac" title="Show Mac folder videos only">Mac</button>
+            <button type="button" class="media-device-btn" data-device="both" title="Show videos present on both VPS and Mac">Both</button>
+          </div>
+          <span class="media-filter-sep" aria-hidden="true"></span>
+          <button class="media-mac-toolbar compact clickable" id="mediaMacToolbar" type="button" aria-label="Refresh Mac folder synchronization" title="Click to rescan the Mac folder and compare with VPS">
+            <span id="mediaMacSyncStatus">Refresh Mac folder</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="media-results">
+        <div class="media-grid" id="mediaGrid">
+          <div class="empty-message">
+            <div class="icon">&#9203;</div>
+            <p>Loading media...</p>
+          </div>
+        </div>
+        <nav class="media-pagination" id="mediaPagination" aria-label="Media pages" hidden>
+          <div class="media-page-numbers" id="mediaPageNumbers" aria-label="Page numbers"></div>
+        </nav>
+      </section>
+    </section>
+
+    <section class="media-profiles-section" aria-label="Profiles">
+      <div class="media-section-heading">
+        <div class="media-profiles-heading">
+          <h2>Profiles</h2>
+          <div class="media-section-subtitle" id="mediaProfileMeta">Loading...</div>
+          <div class="media-search-wrap">
+            <span aria-hidden="true">&#8981;</span>
+            <input id="mediaSearchInput" type="search" placeholder="Search Model" autocomplete="off">
+          </div>
+        </div>
+      </div>
+      <div class="media-profile-website-row" aria-label="Websites">
+        <div class="media-profile-website-filters" id="mediaProfileSourceFilters"></div>
+        <button class="media-profile-source-btn media-refresh-btn" id="mediaProfileRefreshBtn" type="button" title="Refresh profiles" aria-label="Refresh profiles">Refresh</button>
+      </div>
+      <div class="media-profile-status-row" id="mediaProfileStatusFilters" aria-label="Live status"></div>
+      <div class="media-profile-carousel" id="mediaProfileRail">
+        <div class="empty-message">
+          <div class="icon">&#9203;</div>
+          <p>Loading profiles...</p>
+        </div>
+      </div>
+      <nav class="media-pagination media-profile-pagination" id="mediaProfilePagination" aria-label="Profile pages" hidden>
+        <div class="media-page-numbers" id="mediaProfilePageNumbers" aria-label="Profile page numbers"></div>
+      </nav>
+    </section>
+
+    <section class="media-storage-panel" aria-label="VPS storage">
+      <div class="media-storage" id="mediaStorage">
+        <div class="media-storage-head">
+          <span class="media-storage-title">VPS storage</span>
+          <button class="media-profile-source-btn media-refresh-btn" id="mediaStorageRefreshBtn" type="button" title="Refresh storage" aria-label="Refresh storage">Refresh</button>
+        </div>
+        <div class="media-storage-grid">
+          <div class="media-storage-metric"><span>Recording folder</span><strong id="mediaRecordingFolderSize">-</strong></div>
+          <div class="media-storage-metric"><span>Processing / temporary</span><strong id="mediaProcessingSize">-</strong></div>
+          <div class="media-storage-metric"><span>Untracked / other</span><strong id="mediaUntrackedSize">-</strong></div>
+          <div class="media-storage-metric media-storage-metric-disk">
+            <span>Disk used</span>
+            <div class="media-storage-metric-row">
+              <strong id="mediaDiskUsed">-</strong>
+              <em id="mediaDiskUsedPercent">-</em>
+            </div>
+          </div>
+          <div class="media-storage-metric media-storage-metric-disk">
+            <span>Disk free</span>
+            <div class="media-storage-metric-row">
+              <strong id="mediaDiskFree">-</strong>
+              <em id="mediaDiskFreePercent">-</em>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="media-viewer" id="mediaViewer" style="display: none;" aria-hidden="true">
+    <div class="media-viewer-shell">
+      <div class="media-viewer-topbar">
+        <div class="media-viewer-back-region" id="mediaViewerClose" role="button" tabindex="0" title="Close viewer" aria-label="Close viewer">
+          <span class="media-viewer-close" aria-hidden="true">&#8592;</span>
+          <div class="media-viewer-title-wrap">
+            <h2 id="mediaViewerTitle">Media</h2>
+          </div>
+        </div>
+        <div class="media-viewer-actions">
+          <button class="media-viewer-nav" id="mediaViewerPrev" type="button" title="Previous video" aria-label="Previous video">
+            <span aria-hidden="true">&#8592;</span>
+          </button>
+          <button class="media-viewer-nav" id="mediaViewerNext" type="button" title="Next video" aria-label="Next video">
+            <span aria-hidden="true">&#8594;</span>
+          </button>
+        </div>
+      </div>
+      <div class="media-viewer-stage" id="mediaViewerStage"></div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaDeleteModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaDeleteTitle">
+      <h2 id="mediaDeleteTitle">Delete selected videos?</h2>
+      <p id="mediaDeleteMessage">This removes the selected files from their unique device.</p>
+      <div class="media-delete-target" id="mediaDeleteTarget"></div>
+      <div class="media-delete-both-panel" id="mediaDeleteBothPanel" hidden>
+        <div class="media-delete-both-head">
+          <span id="mediaDeleteBothTitle">BOTH videos</span>
+          <div class="media-delete-both-bulk">
+            <button type="button" class="media-delete-bulk-btn" id="mediaDeleteSelectAllVps" title="Check VPS for every BOTH video">All VPS</button>
+            <button type="button" class="media-delete-bulk-btn" id="mediaDeleteSelectAllMac" title="Check Mac for every BOTH video">All Mac</button>
+            <button type="button" class="media-delete-bulk-btn" id="mediaDeleteClearAllMac" title="Uncheck Mac for every BOTH video">Clear Mac</button>
+          </div>
+        </div>
+        <div class="media-delete-both-table-wrap">
+          <table class="media-delete-both-table" aria-label="BOTH delete choices">
+            <thead>
+              <tr>
+                <th scope="col">Video</th>
+                <th scope="col">VPS</th>
+                <th scope="col">Mac</th>
+              </tr>
+            </thead>
+            <tbody id="mediaDeleteBothBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaDeleteCancel" type="button">Cancel</button>
+        <button class="media-delete-confirm" id="mediaDeleteConfirm" type="button">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-profile-settings-modal" id="mediaProfileSettingsModal" style="display: none;" aria-hidden="true">
+    <div class="media-profile-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaProfileSettingsTitle">
+      <div class="media-profile-settings-head">
+        <div>
+          <h2 id="mediaProfileSettingsTitle">Profile settings</h2>
+          <div id="mediaProfileSettingsSubtitle"></div>
+        </div>
+        <button class="media-profile-settings-close" id="mediaProfileSettingsClose" type="button" aria-label="Close">&#10005;</button>
+      </div>
+
+      <form id="mediaProfileSettingsForm" class="media-profile-settings-form">
+        <div class="media-settings-grid">
+          <section>
+            <h3>Identity</h3>
+            <label id="profileUsernameField">Username<input id="profileUsername" type="text" autocomplete="off" placeholder="folder-name"></label>
+            <label>Display name<input id="profileDisplayName" type="text" autocomplete="off"></label>
+            <label>First name<input id="profileFirstName" type="text" autocomplete="off"></label>
+            <label>Last name<input id="profileLastName" type="text" autocomplete="off"></label>
+            <label>Date of birth<input id="profileBirthDate" type="date"></label>
+            <label>Profile image URL<input id="profileImageUrl" type="url" autocomplete="off" placeholder="https://..."></label>
+            <label>Babepedia page URL<input id="profileImageSourceUrl" type="url" autocomplete="off" placeholder="https://www.babepedia.com/babe/..."></label>
+            <button class="media-profile-image-btn" id="profileResolveImageBtn" type="button">Fetch Babepedia image</button>
+            <label>Age<input id="profileAge" type="number" min="0" max="120"></label>
+            <label>Aliases<input id="profileAliases" type="text" autocomplete="off" placeholder="aliases, usernames, variants"></label>
+            <label>Tags<input id="profileTags" type="text" autocomplete="off" placeholder="comma-separated tags"></label>
+          </section>
+
+          <section>
+            <h3>Address</h3>
+            <label>Address<input id="profileAddress" type="text" autocomplete="off"></label>
+            <label>City<input id="profileCity" type="text" autocomplete="off"></label>
+            <label>Region<input id="profileRegion" type="text" autocomplete="off"></label>
+            <label>Postal code<input id="profilePostalCode" type="text" autocomplete="off"></label>
+            <label>Country<input id="profileCountry" type="text" autocomplete="off"></label>
+          </section>
+        </div>
+
+        <section>
+          <h3>Links</h3>
+          <label>Social links<textarea id="profileSocialUrls" rows="3" placeholder="One URL per line"></textarea></label>
+          <label>Stream URLs<textarea id="profileStreamUrls" rows="3" placeholder="One URL per line"></textarea></label>
+          <label>Other profiles<textarea id="profileProfileUrls" rows="3" placeholder="One URL per line"></textarea></label>
+        </section>
+
+        <section>
+          <h3>Notes</h3>
+          <label>Freeform notes<textarea id="profileNotes" rows="4" placeholder="Notes, preferences, context, useful details"></textarea></label>
+        </section>
+
+        <section>
+          <h3>Stream</h3>
+          <div class="media-profile-sources" id="profileSourcesList"></div>
+          <button class="media-source-add-btn" id="profileAddSourceBtn" type="button">Add source</button>
+          <div class="media-settings-legacy-fields" hidden>
+            <select id="profileRecordQuality">
+              <option value="best">Best</option>
+              <option value="2160p">2160p</option>
+              <option value="1440p">1440p</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="480p">480p</option>
+              <option value="360p">360p</option>
+            </select>
+            <input id="profileRetentionDays" type="number" min="0" max="365">
+            <select id="profileSourceType">
+              <option value="chaturbate">Chaturbate</option>
+              <option value="twitch">Twitch</option>
+              <option value="bilibili">Bilibili</option>
+            </select>
+            <input id="profileAutoRecord" type="checkbox">
+          </div>
+        </section>
+
+        <div class="media-profile-settings-actions">
+          <button class="media-profile-delete-btn" id="mediaProfileDeleteBtn" type="button">Delete profile</button>
+          <div>
+            <button class="media-profile-settings-secondary" id="mediaProfileSettingsCancel" type="button">Cancel</button>
+            <button class="media-profile-settings-primary" id="mediaProfileSettingsSave" type="submit">Save</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaProfileDeleteModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaProfileDeleteTitle">
+      <h2 id="mediaProfileDeleteTitle">Delete this profile?</h2>
+      <p>This will delete the profile record, indexed recordings, and this profile's records folder.</p>
+      <div class="media-delete-target" id="mediaProfileDeleteTarget"></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaProfileDeleteCancel" type="button">Cancel</button>
+        <button class="media-delete-confirm" id="mediaProfileDeleteConfirm" type="button">Delete profile</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,77 @@
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ:-UTC}
+    ports:
+      - "127.0.0.1:8191:8191"
+    restart: unless-stopped
+
+  hxylive:
+    build: .
+    container_name: hxylive
+    depends_on:
+      - flaresolverr
+
+    environment:
+      - OUTPUT_DIR=/data
+      - PORT=${PORT:-8080}
+
+      - FFMPEG_PATH=ffmpeg
+
+      - HLS_TIME=${HLS_TIME:-4}
+      - HLS_LIST_SIZE=${HLS_LIST_SIZE:-6}
+
+      - RECORDING_RANGE_CHUNK_SIZE=${RECORDING_RANGE_CHUNK_SIZE:-8388608}
+      - HXYLIVE_DOWNLOAD_LINK_TTL_SECONDS=${HXYLIVE_DOWNLOAD_LINK_TTL_SECONDS:-21600}
+
+      # Chaturbate
+      - CB_RESOLVER_ENABLED=${CB_RESOLVER_ENABLED:-true}
+
+      # DNS / Browser
+      - HXYLIVE_DNS_CACHE=${HXYLIVE_DNS_CACHE:-false}
+      - HXYLIVE_BROWSER_HEADLESS=${HXYLIVE_BROWSER_HEADLESS:-true}
+      - HXYLIVE_BROWSER_CAPTURE_TIMEOUT=${HXYLIVE_BROWSER_CAPTURE_TIMEOUT:-25}
+
+      # Media
+      - HXYLIVE_MEDIA_IMPORTS=${HXYLIVE_MEDIA_IMPORTS:-false}
+
+      # Auto record
+      - AUTO_RECORD_USERS=${AUTO_RECORD_USERS:-}
+
+      # Security
+      - PASSWORD=${PASSWORD:-}
+
+      # Twitch Helix API
+      - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID:-}
+      - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET:-}
+      - TWITCH_GAME_ID=${TWITCH_GAME_ID:-509659}
+
+      # Update
+      - HXYLIVE_ALLOW_DOCKER_UPDATE=${HXYLIVE_ALLOW_DOCKER_UPDATE:-false}
+      - HXYLIVE_GITHUB_REPOSITORY=${HXYLIVE_GITHUB_REPOSITORY:-}
+      - HXYLIVE_DOCKER_IMAGE=${HXYLIVE_DOCKER_IMAGE:-}
+
+      # Timezone
+      - TZ=${TZ:-UTC}
+
+      # Chaturbate auth
+      - CHATURBATE_USERNAME=${CHATURBATE_USERNAME:-}
+      - CHATURBATE_PASSWORD=${CHATURBATE_PASSWORD:-}
+
+      # Proxy
+      - HXYLIVE_PROXY_URL=${HXYLIVE_PROXY_URL:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,flaresolverr}
+
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8080}:${PORT:-8080}"
+
+    volumes:
+      - ${HOST_DATA_DIR:-./data}:/data
+
+    restart: unless-stopped

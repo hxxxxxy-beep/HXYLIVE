@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Watch - HXYLIVE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=93">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js" integrity="sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn" crossorigin="anonymous"></script>
+  <script src="/static/loader.js?v=4"></script>
+  <script defer src="/static/watch.js?v=38"></script>
+</head>
+<body>
+  <div id="header-placeholder"></div>
+
+  <!-- Video Player (Theater Mode) -->
+  <div class="watch-player-container">
+    <button class="watch-back-btn" id="watchBackBtn" type="button" onclick="goBackFromWatch()" title="Back" aria-label="Back">
+      <span aria-hidden="true">&#8592;</span>
+    </button>
+    <video id="videoPlayer" class="watch-video" autoplay muted playsinline></video>
+    <div class="watch-live-controls" id="liveControls">
+      <button class="watch-control-btn" id="livePlayBtn" type="button" title="Play/Pause" aria-label="Play/Pause">
+        <span id="livePlayIcon">&#10074;&#10074;</span>
+      </button>
+      <button class="watch-control-btn" id="liveMuteBtn" type="button" title="Mute" aria-label="Mute">
+        <span id="liveMuteIcon">&#128266;</span>
+      </button>
+      <input class="watch-volume-slider" id="liveVolumeSlider" type="range" min="0" max="1" step="0.01" aria-label="Volume">
+      <div class="watch-live-state" aria-label="Live status">
+        <span class="watch-live-dot"></span>
+        <span>Online</span>
+      </div>
+      <select class="watch-quality-select" id="watchQualitySelect" aria-label="Quality" disabled>
+        <option value="-1">Auto</option>
+      </select>
+      <button class="watch-control-btn" id="liveFullscreenBtn" type="button" title="Fullscreen" aria-label="Fullscreen">
+        <span>&#9974;</span>
+      </button>
+    </div>
+    <div class="watch-offline-overlay" id="offlineOverlay" style="display: none;">
+      <div class="offline-message">
+        <div class="icon" id="offlineIcon">&#128308;</div>
+        <h2 id="offlineTitle">Model is Offline</h2>
+        <p id="offlineText">This model is currently not streaming.</p>
+        <button class="watch-btn retry-btn" id="retryBtn" onclick="retryStream()" style="margin-top: 1rem;">Retry</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model Info -->
+  <div class="watch-info">
+    <div class="watch-info-left">
+      <div class="watch-avatar-wrap" aria-hidden="true">
+        <img class="watch-avatar" id="watchAvatar" alt="">
+        <div class="watch-avatar-placeholder" id="watchAvatarPlaceholder"><span>?</span></div>
+      </div>
+      <div class="watch-info-copy">
+        <div class="watch-title-row">
+          <h1 class="watch-username" id="watchUsername">Loading...</h1>
+        </div>
+        <div class="watch-channel-meta">
+          <div class="watch-meta-line watch-status-line" id="watchStatus">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Checking...</span>
+          </div>
+          <div class="watch-meta-line watch-uptime" id="streamUptime" style="display: none;" aria-live="polite">
+            <span id="streamUptimeValue" aria-hidden="true"></span>
+          </div>
+          <div class="watch-meta-line watch-viewers" id="viewerCount">
+            <span class="watch-meta-label">Viewers:</span>
+            <span id="viewerNum">0</span>
+          </div>
+          <div class="watch-meta-line" id="watchFollowers">
+            <span class="watch-meta-label">Followers:</span>
+            <span id="watchFollowersValue">unavailable</span>
+          </div>
+          <div class="watch-meta-line" id="watchChannelLine" style="display: none;">
+            <span class="watch-meta-label" id="watchChannelLabel">Chaturbate:</span>
+            <a id="watchChannelUrl" href="#" target="_blank" rel="noopener"></a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="watch-info-right">
+      <button class="watch-btn follow-btn" id="followBtn" onclick="toggleFollow()" style="display: none;">
+        <span id="followText">Follow</span>
+      </button>
+      <button class="watch-btn record-btn" id="recordBtn" onclick="openRecordingModal()" style="display: none;">
+        <span id="recordText">Set recording</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="watch-recording-modal" id="recordingModal" style="display: none;" aria-hidden="true">
+    <div class="watch-recording-dialog" role="dialog" aria-modal="true" aria-labelledby="recordingModalTitle">
+      <div class="watch-recording-head">
+        <div>
+          <h2 id="recordingModalTitle">Set recording</h2>
+          <div id="recordingModalSubtitle">Choose where this live source belongs.</div>
+        </div>
+        <button class="watch-recording-close" type="button" onclick="closeRecordingModal()" aria-label="Close">&#215;</button>
+      </div>
+      <div class="watch-recording-tabs">
+        <button class="active" id="recordingExistingTab" type="button" onclick="setRecordingMode('existing')">Existing profile</button>
+        <button id="recordingCreateTab" type="button" onclick="setRecordingMode('create')">New profile</button>
+      </div>
+      <div class="watch-recording-body">
+        <section id="recordingExistingPane">
+          <label class="watch-recording-label">Search
+            <input id="recordingProfileSearch" type="search" autocomplete="off" placeholder="Search profiles">
+          </label>
+          <div class="watch-recording-list" id="recordingProfileList"></div>
+        </section>
+        <form id="recordingCreatePane" style="display: none;" onsubmit="submitCreateRecordingProfile(event)">
+          <label class="watch-recording-label">Username
+            <input id="recordingCreateUsername" type="text" autocomplete="off" required>
+          </label>
+          <label class="watch-recording-label">Display name
+            <input id="recordingCreateDisplayName" type="text" autocomplete="off">
+          </label>
+          <div class="watch-recording-actions">
+            <button class="watch-recording-secondary" type="button" onclick="closeRecordingModal()">Cancel</button>
+            <button class="watch-recording-primary" id="recordingCreateSubmit" type="submit">Create profile</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

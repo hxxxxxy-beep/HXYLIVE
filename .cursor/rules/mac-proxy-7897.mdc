@@ -1,0 +1,35 @@
+---
+description: All Mac outbound internet must use local proxy 7897
+alwaysApply: true
+---
+
+# Mac outbound proxy (mandatory)
+
+From this Mac, **every** connection to the public internet or the remote VPS must use:
+
+`http://127.0.0.1:7897`
+
+## Apply to
+
+- `curl` / `wget` / `fetch` to non-localhost hosts (set `http_proxy` / `https_proxy` / `HTTP_PROXY` / `HTTPS_PROXY`)
+- Git / GitHub (`git push`, `git fetch`, `gh`, etc.)
+- Package installs that hit the network (pip, npm, etc.) when run on this Mac
+- SSH / SCP / rsync to the VPS, via HTTP CONNECT, e.g.:
+
+```bash
+-o ProxyCommand='/usr/bin/nc -X connect -x 127.0.0.1:7897 %h %p'
+```
+
+Or a wrapper: `ProxyCommand='/path/to/ssh-proxy-7897.sh %h %p'` where the script runs  
+`nc -X connect -x 127.0.0.1:7897 "$1" "$2"`.
+
+- Mac Helper install/runtime: `--proxy http://127.0.0.1:7897` (or `HXYLIVE_PROXY_URL`)
+
+## Do not proxy
+
+- `127.0.0.1` / `localhost` only (Mac Helper `17899`, local health checks)
+
+## Do not
+
+- Open direct SSH/SCP/curl to the VPS or other WAN hosts without 7897
+- Assume the sandbox “auto proxy” covers SSH — always set ProxyCommand explicitly for SSH/SCP

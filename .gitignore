@@ -1,0 +1,55 @@
+# Editors and operating systems
+# Generated Mac configuration
+# Historical cutover/build dumps (not needed to redeploy)
+# Historical unreferenced screenshots
+# Local handoff backups
+# Python, tests, and tooling
+# Runtime state and media
+# Secrets and local configuration
+# Temporary deployment artifacts
+**/.DS_Store
+*.bak-*
+*.crdownload
+*.db
+*.key
+*.log
+*.m4v
+*.mkv
+*.mov
+*.mp4
+*.pem
+*.py[cod]
+*.sqlite
+*.sqlite3
+*.swp
+*.tar
+*.tar.gz
+*.ts
+*.webm
+*.zip
+.DS_Store
+.coverage
+.deploy-upload/
+.env
+.env.*
+!.env.example
+.idea/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv-codex/
+.venv/
+.vscode/
+/discover.png
+/following.png
+/recordings.png
+/release/
+AI_HANDOFF_HXYLIVE.md.bak*
+__pycache__/
+data-dev/
+data/
+htmlcov/
+hxylive.zip
+mac-helper/*.plist
+provider-browser/
+venv/

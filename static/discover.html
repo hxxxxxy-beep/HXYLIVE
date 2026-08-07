@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Discover - HXYLIVE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=93">
+  <script src="/static/loader.js?v=4"></script>
+  <script defer src="/static/discover_categories.js?v=9"></script>
+  <script defer src="/static/discover.js?v=72"></script>
+</head>
+<body>
+  <div id="header-placeholder"></div>
+
+  <div class="container">
+    <div class="discover-source-row" id="sourceFilters" aria-label="Websites"></div>
+    <div class="discover-category-row" id="categoryRow" hidden>
+      <div class="filter-pills" id="categoryFilters" aria-label="Categories"></div>
+      <div class="category-status" id="categoryStatus" aria-live="polite"></div>
+    </div>
+    <div class="discover-controls">
+      <div class="search-bar">
+        <span class="search-icon">&#128269;</span>
+        <input type="text" class="search-input" id="searchInput" placeholder="Search models..." autocomplete="off" />
+      </div>
+      <div class="tag-input-container">
+        <span class="tag-icon">&#127991;</span>
+        <input type="text" class="tag-input" id="tagInput" placeholder="Filter by tag..." autocomplete="off" />
+      </div>
+    </div>
+    <div class="active-tag-filters" id="activeTagFilters" style="display: none;"></div>
+
+    <div class="discover-grid" id="discoverGrid">
+      <div class="empty-message discover-loading-message">
+        <div class="icon">&#128269;</div>
+        <p>Loading models...</p>
+      </div>
+    </div>
+
+    <div class="pagination-info discover-load-status" id="discoverLoadStatus" aria-live="polite" style="display: none;"></div>
+  </div>
+
+  <div class="watch-recording-modal" id="recordingModal" style="display: none;" aria-hidden="true">
+    <div class="watch-recording-dialog" role="dialog" aria-modal="true" aria-labelledby="recordingModalTitle">
+      <div class="watch-recording-head">
+        <div>
+          <h2 id="recordingModalTitle">Set recording</h2>
+          <div id="recordingModalSubtitle">Choose where this live source belongs.</div>
+        </div>
+        <button class="watch-recording-close" type="button" onclick="closeDiscoverRecordingModal()" aria-label="Close">&#215;</button>
+      </div>
+      <div class="watch-recording-tabs">
+        <button class="active" id="recordingExistingTab" type="button" onclick="setDiscoverRecordingMode('existing')">Existing profile</button>
+        <button id="recordingCreateTab" type="button" onclick="setDiscoverRecordingMode('create')">New profile</button>
+      </div>
+      <div class="watch-recording-body">
+        <section id="recordingExistingPane">
+          <label class="watch-recording-label">Search
+            <input id="recordingProfileSearch" type="search" autocomplete="off" placeholder="Search profiles">
+          </label>
+          <div class="watch-recording-list" id="recordingProfileList"></div>
+        </section>
+        <form id="recordingCreatePane" style="display: none;" onsubmit="submitDiscoverCreateRecordingProfile(event)">
+          <label class="watch-recording-label">Username
+            <input id="recordingCreateUsername" type="text" autocomplete="off" required>
+          </label>
+          <label class="watch-recording-label">Display name
+            <input id="recordingCreateDisplayName" type="text" autocomplete="off">
+          </label>
+          <div class="watch-recording-actions">
+            <button class="watch-recording-secondary" type="button" onclick="closeDiscoverRecordingModal()">Cancel</button>
+            <button class="watch-recording-primary" id="recordingCreateSubmit" type="submit">Create profile</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
