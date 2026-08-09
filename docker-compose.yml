@@ -30,10 +30,8 @@ services:
       # Chaturbate
       - CB_RESOLVER_ENABLED=${CB_RESOLVER_ENABLED:-true}
 
-      # DNS / Browser
+      # DNS
       - HXYLIVE_DNS_CACHE=${HXYLIVE_DNS_CACHE:-false}
-      - HXYLIVE_BROWSER_HEADLESS=${HXYLIVE_BROWSER_HEADLESS:-true}
-      - HXYLIVE_BROWSER_CAPTURE_TIMEOUT=${HXYLIVE_BROWSER_CAPTURE_TIMEOUT:-25}
 
       # Media
       - HXYLIVE_MEDIA_IMPORTS=${HXYLIVE_MEDIA_IMPORTS:-false}
@@ -69,7 +67,7 @@ services:
       - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,flaresolverr}
 
     ports:
-      - "127.0.0.1:${HOST_PORT:-8080}:${PORT:-8080}"
+      - "127.0.0.1:${HOST_PORT:-8081}:${PORT:-8080}"
 
     volumes:
       - ${HOST_DATA_DIR:-./data}:/data

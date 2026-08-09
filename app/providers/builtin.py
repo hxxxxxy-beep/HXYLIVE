@@ -81,7 +81,7 @@ class ChaturbateProvider(BaseProvider):
         headers = self._headers(target)
         url = await resolve_m3u8_async(target, max_height=max_height)
         if not url:
-            raise ProviderOfflineError(f"Aucun flux Chaturbate pour {target}")
+            raise ProviderOfflineError(f"No Chaturbate stream for {target}")
         hls_master = await resolve_llhls_master_playlist(
             url,
             max_height=max_height,
@@ -271,7 +271,7 @@ class ChaturbateProvider(BaseProvider):
 
     async def login(self, username: str, password: str) -> dict[str, Any]:
         if not self.auth:
-            raise ProviderAuthError("Chaturbate auth service non initialise")
+            raise ProviderAuthError("Chaturbate auth service not initialized")
         return await self.auth.login(username, password)
 
     async def logout(self) -> dict[str, Any]:
@@ -289,7 +289,7 @@ class ChaturbateProvider(BaseProvider):
         x_bc: Optional[str] = None,
     ) -> dict[str, Any]:
         if not self.auth:
-            raise ProviderAuthError("Chaturbate auth service non initialise")
+            raise ProviderAuthError("Chaturbate auth service not initialized")
         cookie_map = _cookies_to_dict(cookies, cookie_header)
         if not cookie_map:
             return {"success": False, "error": "Chaturbate cookies are required; include sessionid and csrftoken from the same browser session"}
@@ -338,20 +338,20 @@ class ChaturbateProvider(BaseProvider):
 
     async def sync_following(self) -> list[dict[str, Any]]:
         if not self.api:
-            raise ProviderAuthError("Chaturbate API non initialisee")
+            raise ProviderAuthError("Chaturbate API not initialized")
         self._require_verified_auth()
         return await self.api.get_followed_models()
 
     async def follow(self, username: str) -> dict[str, Any]:
         if not self.api:
-            raise ProviderAuthError("Chaturbate API non initialisee")
+            raise ProviderAuthError("Chaturbate API not initialized")
         self._require_verified_auth()
         ok = await self.api.follow_model(username)
         return {"success": bool(ok)}
 
     async def unfollow(self, username: str) -> dict[str, Any]:
         if not self.api:
-            raise ProviderAuthError("Chaturbate API non initialisee")
+            raise ProviderAuthError("Chaturbate API not initialized")
         self._require_verified_auth()
         ok = await self.api.unfollow_model(username)
         return {"success": bool(ok)}
@@ -372,7 +372,7 @@ class ChaturbateProvider(BaseProvider):
 
     def _require_verified_auth(self) -> None:
         if not self._has_verified_auth():
-            raise ProviderAuthError("Connexion Chaturbate requise")
+            raise ProviderAuthError("Chaturbate login required")
 
     def _headers(self, target: str) -> dict[str, str]:
         headers = {

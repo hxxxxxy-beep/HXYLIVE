@@ -428,8 +428,8 @@ class ChaturbateAPI:
         Uses the roomlist API or scrapes the homepage.
 
         tag: filter by a single tag via the native API (e.g. "french", "18").
-             Le filtrage natif est crucial : sans ça le total_count reflète
-             l'ensemble et la pagination calculée côté backend est fausse.
+             Native filtering is crucial: without it total_count reflects
+             the full set and backend-calculated pagination is wrong.
         """
         try:
             # Try the internal API first
@@ -448,10 +448,10 @@ class ChaturbateAPI:
                 g = gender_map.get(gender.lower(), "")
                 if g:
                     api_url += f"&genders={g}"
-            # Chaturbate n'a pas de paramètre `tag` dédié sur cet endpoint; le
+            # Chaturbate has no dedicated `tag` parameter on this endpoint; the
             # seul moyen de filtrer est `keywords` (recherche full-text, qui
             # matche sur les tags et le subject). Si on a un tag, on le
-            # concatène au search dans keywords.
+            # is concatenated into the search keywords.
             combined_keywords = " ".join(x for x in (tag, search) if x).strip()
             if combined_keywords:
                 from urllib.parse import quote_plus

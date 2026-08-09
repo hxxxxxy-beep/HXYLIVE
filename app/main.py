@@ -7,10 +7,7 @@ import os
 import asyncio
 import aiohttp
 import json
-import queue
 import shutil
-import subprocess
-import sys
 import time
 from datetime import datetime
 import secrets
@@ -28,7 +25,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from .ffmpeg_runner import FFmpegManager
 from .logger import logger
-from .subprocess_utils import communicate_with_timeout
 from .core.database import Database
 from .core.config import MIN_RECORDING_BYTES, MIN_RECORDING_SECONDS
 from .core.utils import format_bytes
@@ -75,31 +71,9 @@ from .providers import (
     ResolvedStream,
     create_provider_registry,
 )
-from .providers.sessions import ProviderSessionStore
 from .api import auth as auth_router
 from .api import discover as discover_router
 from .api import following as following_router
-
-
-class _NullBrowserCaptureManager:
-    """Stub for removed livejasmin/xcams browser-capture sources."""
-
-    session_store = None
-
-    def get(self, session_id: str):
-        return None
-
-    def list_status(self, recording_only: bool = False) -> list:
-        return []
-
-    def start_session(self, **kwargs):
-        raise ProviderError("Browser capture is not available")
-
-    def stop_session(self, session_id: str) -> bool:
-        return False
-
-    def stop_live_if_idle(self, session_id: str) -> None:
-        return None
 
 # Environment
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -248,39 +222,39 @@ def _is_update_available(current_version: str, latest_version: str) -> bool:
 # Ensure dirs
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-logger.info("Répertoire de sortie", path=str(OUTPUT_DIR))
+logger.info("Output directory", path=str(OUTPUT_DIR))
 logger.info("FFmpeg path", path=FFMPEG_PATH)
 logger.info("HLS Configuration", hls_time=HLS_TIME, hls_list_size=HLS_LIST_SIZE)
 logger.info("Chaturbate Resolver", enabled=CB_RESOLVER_ENABLED)
 logger.info("Local media imports", enabled=MEDIA_IMPORTS_ENABLED)
 if PASSWORD:
-    logger.info("Authentification activée", protected=True)
+    logger.info("Authentication enabled", protected=True)
 else:
-    logger.info("Authentification désactivée", protected=False)
+    logger.info("Authentication disabled", protected=False)
 
 app = FastAPI(title="HXYLIVE", version="0.1.0")
 
-# Gestionnaire de sessions simples (en mémoire)
+# Simple in-memory session manager
 active_sessions = set()
 
 def generate_session_token() -> str:
-    """Génère un token de session sécurisé"""
+    """Generate a secure session token"""
     return secrets.token_urlsafe(32)
 
 def verify_password(provided_password: str) -> bool:
-    """Vérifie si le mot de passe fourni correspond"""
+    """Check whether the provided password matches"""
     return secrets.compare_digest(str(provided_password), str(PASSWORD))
 
 def is_authenticated(session_token: Optional[str]) -> bool:
-    """Vérifie si la session est valide"""
+    """Check whether the session is valid"""
     if not PASSWORD:
-        return True  # Pas d'authentification requise
+        return True  # No authentication required
     return session_token in active_sessions
 
-# Middleware d'authentification
+# Authentication middleware
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    # Routes publiques (pas besoin d'authentification)
+    # Public routes (no authentication needed)
     public_paths = ["/login", "/api/login", "/favicon.ico"]
     public_prefixes = [
         "/static/",
@@ -296,15 +270,15 @@ async def auth_middleware(request: Request, call_next):
     ):
         return await call_next(request)
 
-    # Si pas de mot de passe configuré, laisser passer
+    # If no password is configured, allow through
     if not PASSWORD:
         return await call_next(request)
 
-    # Vérifier le token de session
+    # Validate the session token
     session_token = request.cookies.get("session_token")
 
     if not is_authenticated(session_token):
-        # Rediriger vers la page de login
+        # Redirect to the login page
         if request.url.path.startswith("/api/"):
             return JSONResponse(
                 status_code=401,
@@ -314,30 +288,30 @@ async def auth_middleware(request: Request, call_next):
 
     return await call_next(request)
 
-# Middleware pour logger toutes les requêtes
+# Middleware to log all requests
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
 
-    # Log requête
+    # Log request
     logger.api_request(request.method, request.url.path)
 
-    # Traiter requête
+    # Process request
     response = await call_next(request)
 
-    # Log réponse
+    # Log response
     duration_ms = (time.time() - start_time) * 1000
     logger.api_response(response.status_code, request.url.path, duration_ms)
 
     return response
 
-# Configuration CORS permissive pour Docker/self-hosted deployments
+# Permissive CORS configuration for Docker/self-hosted deployments
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Autoriser toutes les origines
-    allow_credentials=False,  # Pas de credentials avec wildcard origin
-    allow_methods=["*"],  # Autoriser toutes les méthodes (GET, POST, etc.)
-    allow_headers=["*"],  # Autoriser tous les headers
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=False,  # No credentials with wildcard origin
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
 
 # Register API routers
@@ -345,9 +319,9 @@ app.include_router(auth_router.router)
 app.include_router(discover_router.router)
 app.include_router(following_router.router)
 
-# Static mounts — desactiver le cache pour que les reload JS/CSS soient pris
-# en compte immédiatement en dev (volume mount). Le surcoût bandwidth est
-# negligeable pour des fichiers locaux.
+# Static mounts — disable cache so JS/CSS reloads are picked
+# up immediately in dev (volume mount). Bandwidth overhead is
+# negligible for local files.
 @app.middleware("http")
 async def _no_cache_static(request: Request, call_next):
     response = await call_next(request)
@@ -488,11 +462,11 @@ async def _serve_video_file_with_ranges(request: Request, file_path: Path, filen
     from fastapi.responses import StreamingResponse
 
     if not file_path.exists() or not file_path.is_file():
-        logger.error("Fichier vidéo introuvable", path=str(file_path))
+        logger.error("Video file not found", path=str(file_path))
         raise HTTPException(status_code=404, detail="Media not found")
 
     file_size = file_path.stat().st_size
-    logger.file_operation("Lecture", str(file_path), size=file_size)
+    logger.file_operation("Read", str(file_path), size=file_size)
 
     media_type = _recording_media_type(filename)
     base_headers = _recording_headers(filename, file_size)
@@ -687,13 +661,13 @@ async def _repair_truncated_media_profile_usernames() -> int:
                 profile_names.discard(profile_name)
                 profile_names.add(candidates[0])
                 logger.info(
-                    "Profil media repare apres troncature underscore",
+                    "Media profile repaired after underscore truncation",
                     old_username=profile_name,
                     new_username=candidates[0],
                 )
         return repaired
     except Exception as exc:
-        logger.debug("Reparation profils media tronques ignoree", error=str(exc))
+        logger.debug("Truncated media profile repair ignored", error=str(exc))
         return 0
 
 
@@ -1375,7 +1349,7 @@ async def _resolve_profile_image_from_babepedia(username: str, profile: dict, bo
             last_error = e
         except Exception as e:
             last_error = e
-            logger.debug("Résolution image profil Babepedia échouée", url=candidate, error=str(e))
+            logger.debug("Babepedia profile image resolve failed", url=candidate, error=str(e))
 
     if isinstance(last_error, HTTPException):
         raise last_error
@@ -1962,7 +1936,7 @@ async def _scan_media_library_items(
     return items
 
 
-# Route protégée pour les enregistrements
+# Protected route for recordings
 def _recording_candidate_paths(rec: dict) -> list[Path]:
     candidates: list[Path] = []
     if rec.get("is_converted") and rec.get("mp4_path"):
@@ -1990,7 +1964,7 @@ def _select_recording_path(rec: dict, requested_filename: Optional[str] = None) 
 
 def _assert_recording_path_is_safe(path: Path):
     if not _path_is_inside_output(path):
-        logger.warning("Chemin recording hors volume refusé", path=str(path))
+        logger.warning("Recording path outside volume refused", path=str(path))
         raise HTTPException(status_code=403, detail="Recording path is not allowed")
 
 
@@ -2001,7 +1975,7 @@ def _assert_recording_not_active(username: str, path: Path):
             continue
         active_key = _resolved_path_key(session.get("record_path") or "")
         if target_key and active_key == target_key:
-            logger.warning("Accès bloqué à enregistrement en cours", username=username, path=str(path))
+            logger.warning("Blocked access to in-progress recording", username=username, path=str(path))
             raise HTTPException(
                 status_code=403,
                 detail="This recording is in progress. Watch the live stream instead.",
@@ -2024,7 +1998,7 @@ async def _serve_recording_from_record(
 
 @app.api_route("/streams/recordings/{recording_id}", methods=["GET", "HEAD"])
 async def serve_recording_by_id(request: Request, recording_id: str):
-    """Sert un enregistrement via son ID, même si le fichier est en sous-dossier."""
+    """Serve a recording by ID, even if the file is in a subdirectory."""
     if ".." in recording_id or "/" in recording_id:
         raise HTTPException(status_code=400, detail="Invalid recording ID")
     rec = await db.get_recording_by_id(recording_id)
@@ -2035,10 +2009,10 @@ async def serve_recording_by_id(request: Request, recording_id: str):
 
 @app.api_route("/streams/records/{username}/{filename}", methods=["GET", "HEAD"])
 async def serve_recording_protected(request: Request, username: str, filename: str):
-    """Sert un enregistrement (TS ou MP4) avec support HTTP Range pour les gros fichiers"""
+    """Serve a recording (TS or MP4) with HTTP Range support for large files"""
     logger.api_request(request.method, f"/streams/records/{username}/{filename}")
 
-    # Sécurité: vérifier le nom de fichier
+    # Security: validate the filename
     if (
         ".." in username
         or "/" in username
@@ -2046,7 +2020,7 @@ async def serve_recording_protected(request: Request, username: str, filename: s
         or "/" in filename
         or not filename.lower().endswith((".ts", ".mp4", ".webm"))
     ):
-        logger.warning("Tentative d'accès fichier invalide", username=username, filename=filename)
+        logger.warning("Invalid file access attempt", username=username, filename=filename)
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     for rec in await db.get_recordings(username):
@@ -2060,7 +2034,7 @@ async def serve_recording_protected(request: Request, username: str, filename: s
         ):
             return await _serve_recording_from_record(request, rec, filename)
 
-    # Servir le fichier
+    # Serve the file
     file_path = OUTPUT_DIR / "records" / username / filename
     _assert_recording_not_active(username, file_path)
     return await _serve_video_file_with_ranges(request, file_path, filename)
@@ -2068,7 +2042,7 @@ async def serve_recording_protected(request: Request, username: str, filename: s
 
 @app.api_route("/streams/media/{recording_id}", methods=["GET", "HEAD"])
 async def serve_imported_media(request: Request, recording_id: str, download: bool = False):
-    """Sert un média importé via son ID stable, sans exposer de chemin disque."""
+    """Serve an imported media item by its stable ID without exposing a disk path."""
     if ".." in recording_id or "/" in recording_id:
         raise HTTPException(status_code=400, detail="Invalid media ID")
 
@@ -2098,7 +2072,7 @@ async def serve_imported_media(request: Request, recording_id: str, download: bo
 
 @app.api_route("/streams/library/{username}/{file_path:path}", methods=["GET", "HEAD"])
 async def serve_library_media(request: Request, username: str, file_path: str, download: bool = False):
-    """Sert un fichier média présent dans /records/<profil>/ avec validation de chemin."""
+    """Serve a media file under /records/<profile>/ with path validation."""
     media_path = _resolve_library_media_path(username, file_path)
     if not media_path.exists() or not media_path.is_file():
         raise HTTPException(status_code=404, detail="Media not found")
@@ -2135,46 +2109,10 @@ app.mount("/streams/sessions", StaticFiles(directory=str(OUTPUT_DIR / "sessions"
 app.mount("/streams/thumbnails", StaticFiles(directory=str(OUTPUT_DIR / "thumbnails")), name="streams_thumbnails")
 
 manager = FFmpegManager(str(OUTPUT_DIR), ffmpeg_path=FFMPEG_PATH, hls_time=HLS_TIME, hls_list_size=HLS_LIST_SIZE)
-browser_capture_manager = _NullBrowserCaptureManager()
-
-
-@app.get("/streams/browser/{session_id}/{filename}")
-async def serve_browser_live_stream(session_id: str, filename: str):
-    session = browser_capture_manager.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Browser session not found")
-    if filename not in {"live.webm", "live.mp4"} or filename != f"live.{getattr(session, 'file_extension', 'webm')}":
-        raise HTTPException(status_code=404, detail="Browser stream not found")
-    q = session.subscribe()
-
-    async def chunks():
-        try:
-            while session.is_running() or not q.empty():
-                try:
-                    chunk = await asyncio.to_thread(q.get, True, 2)
-                except queue.Empty:
-                    if not session.is_running():
-                        break
-                    continue
-                yield chunk
-        finally:
-            session.unsubscribe(q)
-            if not session.record:
-                browser_capture_manager.stop_live_if_idle(session_id)
-
-    return StreamingResponse(
-        chunks(),
-        media_type="video/mp4" if filename.endswith(".mp4") else "video/webm",
-        headers={
-            "Cache-Control": "no-store",
-            "X-Accel-Buffering": "no",
-        },
-    )
 
 # Database SQLite
 DB_FILE = OUTPUT_DIR / "streamrec.db"
 db = Database(DB_FILE)
-browser_capture_manager.session_store = ProviderSessionStore(db)
 media_import_manager: Optional[MediaImportManager] = None
 
 # Chaturbate API (initialized at startup)
@@ -2320,27 +2258,20 @@ async def _infer_source_type(
 def _provider_for(source_type: str):
     if provider_registry.has(source_type):
         return provider_registry.get(source_type)
-    raise ValueError(f"source_type inconnu: {source_type}")
-
-
-_BROWSER_CAPTURE_SOURCES = set()
+    raise ValueError(f"unknown source_type: {source_type}")
 
 
 def _supports_browser_capture(source_type: str) -> bool:
-    return (source_type or "").strip().lower() in _BROWSER_CAPTURE_SOURCES
-
-
-async def _ensure_browser_capture_session(source_type: str) -> None:
-    return
+    return False
 
 
 def _provider_error_detail(source_type: str, target: str, exc: Exception) -> str:
     if isinstance(exc, ProviderInteractionRequired):
-        return f"{source_type}/{target}: interaction manuelle requise (CAPTCHA/2FA/challenge)"
+        return f"{source_type}/{target}: manual interaction required (CAPTCHA/2FA/challenge)"
     if isinstance(exc, ProviderPrivateError):
-        return f"{source_type}/{target}: flux prive ou payant non supporte"
+        return f"{source_type}/{target}: private or paid stream not supported"
     if isinstance(exc, ProviderAuthError):
-        return f"{source_type}/{target}: connexion requise"
+        return f"{source_type}/{target}: login required"
     if isinstance(exc, ProviderOfflineError):
         return f"{source_type}/{target}: model offline or public stream not found"
     return f"{source_type}/{target}: {exc}"
@@ -2356,8 +2287,8 @@ async def _resolve_stream(
     provider = _provider_for(source_type)
     if not getattr(provider.capabilities, "can_stream", True):
         raise ProviderError(
-            f"{provider.display_name} est disponible en Discover uniquement: "
-            "aucun flux public lisible par FFmpeg n'a ete valide."
+            f"{provider.display_name} is available in Discover only: "
+            "no public FFmpeg-readable stream was validated."
         )
     stream = await provider.resolve_stream(
         target,
@@ -2710,65 +2641,8 @@ def _ffmpeg_stream_input(stream: ResolvedStream) -> tuple[str, Optional[dict[str
     return stream.url, stream.headers, stream.url
 
 
-def _browser_capture_completion_callback(loop):
-    """Schedule final indexing on the server loop from the capture thread."""
-    def completed(session) -> None:
-        if not getattr(session, "record", False):
-            return
-        index_coro = _index_browser_capture_recording(session)
-        try:
-            session._index_future = asyncio.run_coroutine_threadsafe(index_coro, loop)
-        except Exception as exc:
-            index_coro.close()
-            logger.warning(
-                "Planification indexation browser recording échouée",
-                session_id=getattr(session, "id", None),
-                person=getattr(session, "person", None),
-                error=str(exc),
-            )
-
-    return completed
-
-
-def _start_browser_capture(
-    source_type: str,
-    target: str,
-    person: str,
-    display_name: Optional[str] = None,
-    record: bool = True,
-    filename_format: str = FILENAME_FORMAT_TIMESTAMP,
-    records_dir_for_person: Optional[Path] = None,
-    target_username: Optional[str] = None,
-    session_key: Optional[str] = None,
-):
-    provider = _provider_for(source_type)
-    normalized_source = (source_type or "").strip().lower()
-    if target.startswith("http://") or target.startswith("https://"):
-        page_url = target
-    else:
-        page_url = provider.canonical_url(target)
-    capture_mode = "media_recorder"
-    try:
-        completion_callback = _browser_capture_completion_callback(asyncio.get_running_loop())
-    except RuntimeError:
-        completion_callback = None
-    return browser_capture_manager.start_session(
-        source_type=source_type,
-        page_url=page_url,
-        person=person,
-        display_name=display_name or target,
-        record=record,
-        capture_mode=capture_mode,
-        filename_format=filename_format,
-        records_dir_for_person=records_dir_for_person,
-        target=target_username or target,
-        session_key=session_key,
-        on_complete=completion_callback,
-    )
-
-
 def _all_recording_statuses() -> list[dict]:
-    return manager.list_status() + browser_capture_manager.list_status(recording_only=True)
+    return manager.list_status()
 
 
 async def _note_recording_last_seen(
@@ -2798,59 +2672,6 @@ async def _note_recording_last_seen(
         pass
 
 
-async def _index_browser_capture_recording(session) -> None:
-    if not getattr(session, "record", False):
-        return
-    record_path = Path(session.record_path)
-    if not record_path.exists() or not record_path.is_file():
-        return
-    try:
-        from app.tasks.monitor import generate_recording_thumbnail, get_media_created_at, get_video_duration
-
-        await _remux_browser_recording(record_path)
-        file_size = record_path.stat().st_size
-        duration_seconds = await get_video_duration(record_path, FFMPEG_PATH)
-        if not duration_seconds:
-            duration_seconds = max(0, int(time.time() - getattr(session, "start_time", time.time())))
-        if duration_seconds < MIN_RECORDING_SECONDS and file_size < MIN_RECORDING_BYTES:
-            return
-        fallback_created_at = int(getattr(session, "start_time", None) or record_path.stat().st_mtime)
-        thumbnail_path = await generate_recording_thumbnail(
-            record_path,
-            OUTPUT_DIR,
-            session.person,
-            FFMPEG_PATH,
-        )
-        created_at = await get_media_created_at(
-            record_path,
-            FFMPEG_PATH,
-            fallback_timestamp=fallback_created_at,
-        )
-        await db.add_or_update_recording(
-            username=session.person,
-            filename=record_path.name,
-            file_path=str(record_path),
-            file_size=file_size,
-            recording_id=f"{session.person}_{record_path.stem}",
-            duration_seconds=duration_seconds,
-            thumbnail_path=thumbnail_path,
-            created_at=created_at,
-        )
-        await _note_recording_last_seen(
-            username=session.person,
-            created_at=created_at,
-            duration_seconds=duration_seconds,
-            source_type=getattr(session, "source_type", None),
-        )
-    except Exception as exc:
-        logger.warning(
-            "Indexation browser recording échouée",
-            session_id=session.id,
-            person=session.person,
-            error=str(exc),
-        )
-
-
 async def _index_ffmpeg_recording(session) -> None:
     paths = []
     try:
@@ -2875,7 +2696,7 @@ async def _index_ffmpeg_recording(session) -> None:
                 duration_seconds = max(0, int(time.time() - getattr(session, "start_time", time.time())))
             if duration_seconds < MIN_RECORDING_SECONDS and file_size < MIN_RECORDING_BYTES:
                 logger.info(
-                    "Recording trop court, indexation ignorée",
+                    "Recording too short, indexing skipped",
                     session_id=session.id,
                     person=session.person,
                     file=record_path.name,
@@ -2913,7 +2734,7 @@ async def _index_ffmpeg_recording(session) -> None:
                 source_type=getattr(session, "source_type", None),
             )
             logger.info(
-                "Recording FFmpeg indexée",
+                "FFmpeg recording indexed",
                 session_id=session.id,
                 person=session.person,
                 file=record_path.name,
@@ -2922,58 +2743,11 @@ async def _index_ffmpeg_recording(session) -> None:
             )
     except Exception as exc:
         logger.warning(
-            "Indexation recording FFmpeg échouée",
+            "FFmpeg recording indexing failed",
             session_id=getattr(session, "id", None),
             person=getattr(session, "person", None),
             error=str(exc),
         )
-
-
-async def _remux_browser_recording(record_path: Path) -> bool:
-    if record_path.suffix.lower() not in {".webm", ".mp4"}:
-        return False
-    tmp_path = record_path.with_name(f"{record_path.stem}.remuxing{record_path.suffix}")
-    try:
-        if tmp_path.exists():
-            tmp_path.unlink()
-        proc = await asyncio.create_subprocess_exec(
-            FFMPEG_PATH,
-            "-y",
-            "-v",
-            "error",
-            "-i",
-            str(record_path),
-            "-c",
-            "copy",
-            str(tmp_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await communicate_with_timeout(proc, 120)
-        if proc.returncode != 0:
-            logger.warning(
-                "Remux browser recording échoué",
-                path=str(record_path),
-                error=(stderr or stdout or b"").decode("utf-8", "replace")[:500],
-            )
-            return False
-        if not tmp_path.exists() or tmp_path.stat().st_size <= 0:
-            return False
-        os.replace(tmp_path, record_path)
-        return True
-    except Exception as exc:
-        logger.warning(
-            "Remux browser recording impossible",
-            path=str(record_path),
-            error=str(exc),
-        )
-        return False
-    finally:
-        try:
-            if tmp_path.exists():
-                tmp_path.unlink()
-        except Exception:
-            pass
 
 
 async def _provider_status(source_type: str, username: str) -> ProviderStatus:
@@ -2984,28 +2758,8 @@ async def _provider_status(source_type: str, username: str) -> ProviderStatus:
     return status
 
 
-# Fichier de sauvegarde des modèles (côté serveur)
+# Model list backup file (server-side)
 MODELS_FILE = OUTPUT_DIR / "models.json"
-
-def load_models():
-    """Charge la liste des modèles depuis le fichier JSON"""
-    if MODELS_FILE.exists():
-        try:
-            with open(MODELS_FILE, 'r') as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-def save_models_to_file(models):
-    """Sauvegarde la liste des modèles dans le fichier JSON"""
-    try:
-        with open(MODELS_FILE, 'w') as f:
-            json.dump(models, f, indent=2)
-        return True
-    except Exception as e:
-        logger.error("Erreur sauvegarde modèles", exc_info=True, error=str(e))
-        return False
 
 
 class StartBody(BaseModel):
@@ -3013,7 +2767,7 @@ class StartBody(BaseModel):
     source_type: Optional[str] = None  # "m3u8", provider source_type, or None/"auto"
     name: Optional[str] = None  # display name
     person: Optional[str] = None  # recording bucket (per person)
-    auto_start: Optional[bool] = False  # True si démarrage automatique
+    auto_start: Optional[bool] = False  # True for automatic start
     record_quality: Optional[str] = None  # best, 1080p, 720p, 480p, 360p
     recordQuality: Optional[str] = None  # camelCase frontend alias
     session_key: Optional[str] = None
@@ -3146,7 +2900,7 @@ def _record_path_from_model(model: Optional[dict], username: str) -> str:
         return _normalize_record_path((model or {}).get("record_path"), username)
     except HTTPException:
         logger.warning(
-            "Chemin recording modèle invalide, fallback défaut",
+            "Invalid model recording path, falling back to default",
             username=username,
             record_path=(model or {}).get("record_path"),
         )
@@ -3233,7 +2987,7 @@ async def watch_page(username: str):
 
 @app.get("/login")
 async def login_page():
-    """Page de connexion"""
+    """Login page"""
     return FileResponse(str(STATIC_DIR / "login.html"))
 
 
@@ -3279,7 +3033,7 @@ async def api_logout(response: Response, session_token: Optional[str] = Cookie(N
 
 @app.get("/favicon.ico")
 async def favicon():
-    """Retourne un favicon SVG simple"""
+    """Return a simple SVG favicon"""
     from fastapi.responses import Response
     svg_favicon = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
         <circle cx="50" cy="50" r="45" fill="#6366f1"/>
@@ -3292,7 +3046,7 @@ async def favicon():
 
 @app.get("/api/version")
 async def get_version():
-    """Retourne les informations de version et configuration"""
+    """Return version and configuration information"""
     version = os.environ.get("APP_VERSION", "dev")
     check_interval = await get_check_interval_seconds(db)
     return {
@@ -3311,186 +3065,10 @@ async def get_version():
 
 @app.get("/api/logs")
 async def get_logs(level: Optional[str] = None, limit: int = 200, offset: int = 0):
-    """Retourne les logs de l'application depuis la mémoire"""
+    """Return application logs from memory"""
     logs = logger.memory_handler.get_logs(level=level, limit=limit, offset=offset)
     total = logger.memory_handler.get_total(level=level)
     return {"logs": logs, "total": total}
-
-
-# ============================================
-# GitOps Endpoints
-# ============================================
-
-@app.get("/api/git/status")
-async def git_status():
-    """Vérifie s'il y a des mises à jour disponibles depuis Git"""
-    try:
-        # Vérifier si on est dans un repo Git
-        is_git = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True
-        ).returncode == 0
-
-        if not is_git:
-            return {
-                "isGitRepo": False,
-                "message": "Not a Git repository"
-            }
-
-        # Récupérer le commit actuel
-        current_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True
-        ).stdout.strip()
-
-        # Récupérer la branche actuelle
-        current_branch = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True
-        ).stdout.strip()
-
-        # Fetch pour vérifier les updates
-        subprocess.run(
-            ["git", "fetch"],
-            cwd=BASE_DIR,
-            capture_output=True
-        )
-
-        # Vérifier s'il y a des commits en avance sur origin
-        remote_commit = subprocess.run(
-            ["git", "rev-parse", f"origin/{current_branch}"],
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True
-        ).stdout.strip()
-
-        has_updates = current_commit != remote_commit
-
-        # Compter les commits en retard
-        if has_updates:
-            behind_count = subprocess.run(
-                ["git", "rev-list", "--count", f"HEAD..origin/{current_branch}"],
-                cwd=BASE_DIR,
-                capture_output=True,
-                text=True
-            ).stdout.strip()
-        else:
-            behind_count = "0"
-
-        return {
-            "isGitRepo": True,
-            "currentBranch": current_branch,
-            "currentCommit": current_commit[:8],
-            "remoteCommit": remote_commit[:8],
-            "hasUpdates": has_updates,
-            "behindBy": int(behind_count),
-            "canUpdate": has_updates
-        }
-
-    except Exception as e:
-        return {
-            "isGitRepo": False,
-            "error": str(e)
-        }
-
-
-@app.post("/api/git/update")
-async def git_update():
-    """Effectue un git pull et redémarre l'application"""
-    try:
-        # Vérifier si on est dans un repo Git
-        is_git = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True
-        ).returncode == 0
-
-        if not is_git:
-            raise HTTPException(status_code=400, detail="Not a Git repository")
-
-        # Sauvegarder le commit actuel
-        old_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True
-        ).stdout.strip()
-
-        # Git pull
-        pull_result = subprocess.run(
-            ["git", "pull"],
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True
-        )
-
-        if pull_result.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Git pull failed: {pull_result.stderr}"
-            )
-
-        # Nouveau commit
-        new_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True
-        ).stdout.strip()
-
-        updated = old_commit != new_commit
-
-        # Si des changements ont été appliqués, redémarrer
-        if updated:
-            # Planifier le redémarrage dans 2 secondes
-            asyncio.create_task(restart_application())
-
-            return {
-                "success": True,
-                "updated": True,
-                "oldCommit": old_commit[:8],
-                "newCommit": new_commit[:8],
-                "message": "Update applied. Application will restart in 2 seconds...",
-                "output": pull_result.stdout
-            }
-        else:
-            return {
-                "success": True,
-                "updated": False,
-                "commit": new_commit[:8],
-                "message": "Already up to date",
-                "output": pull_result.stdout
-            }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-async def restart_application():
-    """Redémarre l'application après un délai"""
-    await asyncio.sleep(2)
-    logger.info("Redémarrage application", task="restart")
-
-    # Dev: uvicorn --reload reagit au touch du module principal.
-    if "--reload" in sys.argv:
-        try:
-            Path(__file__).touch()
-            return
-        except Exception:
-            pass
-
-    # Prod (Docker): on quitte proprement. Le container manager relance
-    # l'app via sa restart policy (unless-stopped).
-    os._exit(0)
 
 
 @app.get("/model.html")
@@ -3542,7 +3120,7 @@ async def amazon_ivs_player_asset(asset_name: str, request: Request):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Erreur chargement asset IVS", asset=asset_name, error=str(exc), exc_info=True)
+        logger.error("Error loading IVS asset", asset=asset_name, error=str(exc), exc_info=True)
         raise HTTPException(status_code=502, detail="IVS player asset unavailable")
 
     _IVS_PLAYER_ASSET_CACHE[asset_name] = {"body": body, "cached_at": now}
@@ -3627,8 +3205,8 @@ async def hls_proxy(token_path: str, request: Request):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Erreur proxy HLS", url=url, error=str(exc), exc_info=True)
-        raise HTTPException(status_code=502, detail="Erreur proxy HLS")
+        logger.error("HLS proxy error", url=url, error=str(exc), exc_info=True)
+        raise HTTPException(status_code=502, detail="HLS proxy error")
 
 
 async def _provider_login_state(source_type: str) -> dict:
@@ -3743,14 +3321,14 @@ async def _ensure_saved_provider_login(provider, source_type: str) -> None:
     except ProviderInteractionRequired:
         raise HTTPException(
             status_code=409,
-            detail=f"{provider.display_name}: session navigateur verifiee requise",
+            detail=f"{provider.display_name}: verified browser session required",
         )
     except ProviderAuthError:
-        raise HTTPException(status_code=401, detail=f"{provider.display_name}: connexion requise")
+        raise HTTPException(status_code=401, detail=f"{provider.display_name}: login required")
     except ProviderError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not logged_in:
-        raise HTTPException(status_code=401, detail=f"{provider.display_name}: connexion requise")
+        raise HTTPException(status_code=401, detail=f"{provider.display_name}: login required")
 
 
 async def _disabled_provider_sources() -> set[str]:
@@ -3776,7 +3354,7 @@ async def list_providers():
 async def provider_set_enabled(source_type: str, body: ProviderEnabledBody):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
 
     disabled_sources = await _disabled_provider_sources()
     if body.enabled:
@@ -3795,7 +3373,7 @@ async def provider_set_enabled(source_type: str, body: ProviderEnabledBody):
 async def provider_status(source_type: str):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
     provider = _provider_for(source_type)
     return {
         **provider.metadata(),
@@ -3807,7 +3385,7 @@ async def provider_status(source_type: str):
 async def provider_login(source_type: str, body: ProviderLoginBody):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
     provider = _provider_for(source_type)
     if not getattr(provider.capabilities, "can_login", False):
         raise HTTPException(status_code=400, detail=f"{provider.display_name}: account connection unsupported")
@@ -3880,7 +3458,7 @@ def _provider_session_payload(body: ProviderSessionBody) -> tuple[Optional[list[
 async def provider_import_session(source_type: str, body: ProviderSessionBody):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
     provider = _provider_for(source_type)
     if not getattr(provider.capabilities, "can_login", False):
         raise HTTPException(status_code=400, detail=f"{provider.display_name}: session import unsupported")
@@ -3912,7 +3490,7 @@ async def provider_import_session(source_type: str, body: ProviderSessionBody):
 async def provider_logout(source_type: str):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
     result = await _provider_for(source_type).logout()
     return result
 
@@ -3921,7 +3499,7 @@ async def provider_logout(source_type: str):
 async def provider_sync_following(source_type: str):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
     provider = _provider_for(source_type)
     if not getattr(provider.capabilities, "can_sync_following", False):
         raise HTTPException(
@@ -3964,7 +3542,7 @@ async def provider_sync_following(source_type: str):
 async def provider_is_following(source_type: str, username: str):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
     provider = _provider_for(source_type)
     local = await db.get_followed_model(username, source_type=source_type)
     local_match = bool(local and (local.get("source_type") or "chaturbate") == source_type)
@@ -3995,7 +3573,7 @@ async def provider_is_following(source_type: str, username: str):
 async def provider_follow(source_type: str, username: str):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
     provider = _provider_for(source_type)
 
     # Local follow first so Discover hearts stay snappy (CB/Stripchat status/login
@@ -4087,7 +3665,7 @@ async def provider_follow(source_type: str, username: str):
 async def provider_unfollow(source_type: str, username: str):
     source_type = _normalize_source_type(source_type) or ""
     if source_type not in _available_source_types():
-        raise HTTPException(status_code=404, detail=f"Source '{source_type}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{source_type}' unavailable")
     provider = _provider_for(source_type)
 
     await db.delete_followed_model(username, source_type=source_type)
@@ -4132,8 +3710,8 @@ async def provider_unfollow(source_type: str, username: str):
 @app.post("/api/start")
 async def api_start(body: StartBody):
     start_time = time.time()
-    logger.section("API /api/start - Démarrage Enregistrement")
-    logger.debug("Requête reçue",
+    logger.section("API /api/start - Start recording")
+    logger.debug("Request received",
                 target=body.target,
                 source_type=body.source_type,
                 person=body.person,
@@ -4142,8 +3720,8 @@ async def api_start(body: StartBody):
 
     target = (body.target or "").strip()
     if not target:
-        logger.error("Champ 'target' vide dans la requête")
-        raise HTTPException(status_code=400, detail="Champ 'target' requis")
+        logger.error("Empty 'target' field in request")
+        raise HTTPException(status_code=400, detail="Missing required 'target' field")
 
     requested_source = _normalize_source_type(body.source_type)
     model_settings = None
@@ -4161,20 +3739,20 @@ async def api_start(body: StartBody):
             except Exception:
                 model_settings = None
 
-    # Si c'est un auto-start, vérifier que auto_record est activé dans la DB
+    # For auto-start, verify auto_record is enabled in the DB
     if body.auto_start:
         username = body.person or target
         model = model_settings or await db.get_model(username, source_type=requested_source)
         if model:
             auto_record = bool(model.get('auto_record', True))
             if not auto_record:
-                logger.warning("Auto-record désactivé pour ce modèle", username=username)
+                logger.warning("Auto-record disabled for this model", username=username)
                 raise HTTPException(status_code=403, detail=f"Auto-record disabled for {username}")
         else:
-            logger.warning("Modèle non trouvé en DB, auto-start refusé", username=username)
-            raise HTTPException(status_code=404, detail=f"Modèle {username} non trouvé")
+            logger.warning("Model not found in DB, auto-start refused", username=username)
+            raise HTTPException(status_code=404, detail=f"Model {username} not found")
 
-    logger.info("Paramètres validés", target=target, source_type=body.source_type)
+    logger.info("Parameters validated", target=target, source_type=body.source_type)
 
     m3u8_url: Optional[str] = None
     stream_headers: Optional[dict[str, str]] = None
@@ -4194,7 +3772,7 @@ async def api_start(body: StartBody):
         url_source = _source_type_from_url(target)
         if not requested_source and url_source:
             stype = url_source
-    logger.debug("Détermination type source", source_type=stype or 'auto', target=target)
+    logger.debug("Determining source type", source_type=stype or 'auto', target=target)
 
     direct_media_url = (
         target.startswith("http://")
@@ -4202,7 +3780,7 @@ async def api_start(body: StartBody):
     ) and (".m3u8" in target.lower() or ".mpd" in target.lower())
 
     if stype == "m3u8" or direct_media_url:
-        logger.info("URL M3U8 directe détectée", url=target[:80])
+        logger.info("Direct M3U8 URL detected", url=target[:80])
         m3u8_url = target
         source_url = target
     else:
@@ -4212,63 +3790,11 @@ async def api_start(body: StartBody):
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"source_type '{effective_source}' inconnu. "
-                    f"Sources disponibles: {', '.join(sorted(available_sources))}"
+                    f"Unknown source_type '{effective_source}'. "
+                    f"Available sources: {', '.join(sorted(available_sources))}"
                 ),
             )
-        if _supports_browser_capture(effective_source):
-            if not person:
-                person = target
-            person = slugify(person)
-            logger.subsection(f"Démarrage capture navigateur '{effective_source}'")
-            try:
-                await _ensure_browser_capture_session(effective_source)
-                sess = _start_browser_capture(
-                    effective_source,
-                    target,
-                    person=person,
-                    display_name=body.name or target,
-                    record=True,
-                    filename_format=filename_format,
-                    records_dir_for_person=_model_record_dir(model_settings, person),
-                    target_username=target,
-                    session_key=session_key,
-                )
-                ready = await asyncio.to_thread(sess.wait_until_ready, 35)
-                if not ready:
-                    await asyncio.to_thread(browser_capture_manager.stop_session, sess.id)
-                    raise RuntimeError("Aucun flux video capturable dans le navigateur")
-                duration_ms = (time.time() - start_time) * 1000
-                logger.success(
-                    "Session browser capture créée",
-                    session_id=sess.id,
-                    person=person,
-                    duration_ms=f"{duration_ms:.2f}",
-                )
-            except RuntimeError as e:
-                logger.error("Session browser capture impossible", person=person, error=str(e))
-                raise HTTPException(status_code=409, detail=str(e))
-            except ProviderError as e:
-                logger.error("Session browser capture refusee", person=person, error=str(e))
-                raise HTTPException(status_code=400, detail=_provider_error_detail(effective_source, target, e))
-            except Exception as e:
-                logger.critical("Erreur création browser capture", exc_info=True, person=person, error=str(e))
-                raise HTTPException(status_code=500, detail=f"Erreur serveur: {str(e)}")
-
-            return {
-                "id": sess.id,
-                "person": person,
-                "name": sess.name,
-                "playback_url": sess.playback_url,
-                "record_path": sess.record_path_today(),
-                "created_at": sess.created_at,
-                "running": True,
-                "capture_type": "browser",
-                "source_type": effective_source,
-                "target": target,
-                "session_key": session_key or person,
-            }
-        logger.subsection(f"Résolution via source '{effective_source}'")
+        logger.subsection(f"Resolve via source '{effective_source}'")
         try:
             resolved = await _resolve_stream(
                 effective_source,
@@ -4281,16 +3807,16 @@ async def api_start(body: StartBody):
             if not m3u8_url:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Impossible de trouver le flux pour {target}",
+                    detail=f"Unable to find stream for {target}",
                 )
-            logger.success("M3U8 résolu", username=target, url=m3u8_url[:80])
+            logger.success("M3U8 resolved", username=target, url=m3u8_url[:80])
             if not person:
                 person = target
-                logger.debug("Person défini depuis target", person=person)
+                logger.debug("Person set from target", person=person)
         except HTTPException:
             raise
         except Exception as e:
-            error_detail = f"Échec résolution {effective_source}: {_provider_error_detail(effective_source, target, e)}"
+            error_detail = f"Resolve failed {effective_source}: {_provider_error_detail(effective_source, target, e)}"
             logger.error(error_detail, exc_info=True, username=target)
             raise HTTPException(status_code=400, detail=error_detail)
 
@@ -4307,12 +3833,12 @@ async def api_start(body: StartBody):
             person = "session"
 
     person = slugify(person)
-    logger.info("Identifiant slugifié", person=person, display_name=body.name)
+    logger.info("Slugified identifier", person=person, display_name=body.name)
     source_url = source_url or m3u8_url
     records_dir_for_person = _model_record_dir(model_settings, person)
 
     segment_duration_seconds, segment_size_bytes = await _get_recording_segment_limits()
-    logger.subsection("Démarrage Session FFmpeg")
+    logger.subsection("Starting FFmpeg session")
     try:
         sess = await asyncio.to_thread(
             manager.start_session,
@@ -4332,16 +3858,16 @@ async def api_start(body: StartBody):
             session_key=session_key,
         )
         duration_ms = (time.time() - start_time) * 1000
-        logger.success("Session créée avec succès",
+        logger.success("Session created successfully",
                       session_id=sess.id,
                       person=person,
                       duration_ms=f"{duration_ms:.2f}")
     except RuntimeError as e:
-        logger.error("Session déjà en cours", person=person, error=str(e))
+        logger.error("Session already running", person=person, error=str(e))
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
-        logger.critical("Erreur création session", exc_info=True, person=person, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Erreur serveur: {str(e)}")
+        logger.critical("Session creation error", exc_info=True, person=person, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
     return {
         "id": sess.id,
@@ -4368,13 +3894,6 @@ async def api_stop(session_id: str):
     ok = await asyncio.to_thread(manager.stop_session, session_id)
     if ok and ffmpeg_session:
         await _index_ffmpeg_recording(ffmpeg_session)
-    if not ok:
-        browser_session = browser_capture_manager.get(session_id)
-        ok = await asyncio.to_thread(browser_capture_manager.stop_session, session_id)
-        if ok and browser_session:
-            index_future = getattr(browser_session, "_index_future", None)
-            if index_future is not None:
-                await asyncio.wrap_future(index_future)
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"stopped": True, "id": session_id}
@@ -4579,7 +4098,7 @@ async def api_process_log(session_id: str, lines: int = 30):
         text = data.decode("utf-8", errors="replace")
         tail = text.splitlines()[-lines:]
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Lecture log: {e}")
+        raise HTTPException(status_code=500, detail=f"Log read error: {e}")
     return {"session_id": session_id, "lines": tail, "path": log_path}
 
 
@@ -4606,7 +4125,7 @@ async def api_process_kill(session_id: str):
     try:
         proc.kill()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur kill: {e}")
+        raise HTTPException(status_code=500, detail=f"Kill error: {e}")
     # Run the manager's stop to release locks / threads
     await asyncio.to_thread(manager.stop_session, session_id)
     return {"killed": True, "session_id": session_id}
@@ -4638,7 +4157,7 @@ async def api_process_restart(session_id: str):
 
 @app.get("/api/model/{username}/status")
 async def get_model_status(username: str, source: Optional[str] = None):
-    """Récupère le statut d'un modèle via le registre provider."""
+    """Fetch a model's status via the provider registry."""
     source_type = _normalize_source_type(source)
     model = await db.get_model(username, source_type=source_type)
     if not model or not model.get('source_type'):
@@ -4790,7 +4309,7 @@ async def get_model_status(username: str, source: Optional[str] = None):
         }
     except Exception as e:
         logger.debug(
-            "Provider check_status échoué",
+            "Provider check_status failed",
             username=username,
             source_type=source_type,
             error=str(e),
@@ -4814,11 +4333,10 @@ async def get_model_stream(
     source: Optional[str] = None,
     quality: Optional[int] = None,
 ):
-    """Récupère l'URL du stream live pour un modèle.
+    """Fetch the live stream URL for a model.
 
-    Le source_type est déterminé par ordre de priorité: query param `source`
-    (depuis le discover multi-plugin), puis cache SQLite, puis défaut
-    Chaturbate.
+    source_type is resolved by priority: query param `source`
+    (from Discover), then SQLite cache, then default Chaturbate.
     """
     try:
         model = None
@@ -4834,38 +4352,8 @@ async def get_model_stream(
         if source_type not in _available_source_types():
             raise HTTPException(
                 status_code=404,
-                detail=f"Source '{source_type}' non disponible",
+                detail=f"Source '{source_type}' unavailable",
             )
-        if _supports_browser_capture(source_type):
-            status = None
-            person = slugify(username)
-            try:
-                await _ensure_browser_capture_session(source_type)
-                sess = _start_browser_capture(
-                    source_type,
-                    username,
-                    person=person,
-                    display_name=username,
-                    record=False,
-                )
-                ready = await asyncio.to_thread(sess.wait_until_ready, 35)
-                if not ready:
-                    await asyncio.to_thread(browser_capture_manager.stop_session, sess.id)
-                    raise RuntimeError("Aucun flux video capturable dans le navigateur")
-            except Exception as e:
-                raise HTTPException(status_code=404, detail=_provider_error_detail(source_type, username, e))
-
-            return {
-                "username": username,
-                "streamUrl": sess.playback_url,
-                "streamType": getattr(sess, "file_extension", "webm"),
-                "isOnline": True,
-                "sourceType": source_type,
-                "roomStatus": "public",
-                "viewers": int(status.viewers or 0) if status else 0,
-                "tags": list(status.tags or []) if status else [],
-                "thumbnail": status.thumbnail if status else None,
-            }
         if quality is not None and quality not in {360, 480, 720, 1080}:
             raise HTTPException(
                 status_code=400,
@@ -4882,7 +4370,7 @@ async def get_model_stream(
             raise HTTPException(status_code=404, detail=_provider_error_detail(source_type, username, e))
 
         if not resolved.url:
-            raise HTTPException(status_code=404, detail=f"Impossible de trouver le flux pour {username}")
+            raise HTTPException(status_code=404, detail=f"Unable to find stream for {username}")
 
         return {
             "username": username,
@@ -4899,16 +4387,16 @@ async def get_model_stream(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Erreur récupération stream", username=username, error=str(e), exc_info=True)
+        logger.error("Stream fetch error", username=username, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/thumbnail/{username}")
 async def get_thumbnail(username: str):
-    """Sert la miniature depuis le cache (générée par la tâche de monitoring)"""
+    """Serve the thumbnail from cache (generated by the monitor task)"""
     from fastapi.responses import FileResponse, Response
 
-    # Récupérer le chemin de la miniature depuis SQLite
+    # Get the thumbnail path from SQLite
     model = await db.get_model(username)
 
     if model and model.get('thumbnail_path'):
@@ -4921,8 +4409,8 @@ async def get_thumbnail(username: str):
                 headers={"Cache-Control": "public, max-age=60"}
             )
 
-    # Chercher manuellement dans les dossiers si pas en cache
-    # Ordre de préférence: live > chaturbate > offline
+    # Search folders manually if not in cache
+    # Preference order: live > chaturbate > offline
     for subdir in ["live", "chaturbate", "offline"]:
         thumb_path = OUTPUT_DIR / "thumbnails" / subdir / f"{username}.jpg"
         if thumb_path.exists():
@@ -4932,7 +4420,7 @@ async def get_thumbnail(username: str):
                 headers={"Cache-Control": "public, max-age=60"}
             )
 
-    # SVG placeholder si aucune miniature trouvée
+    # SVG placeholder when no thumbnail is found
     svg_placeholder = f'''<svg xmlns="http://www.w3.org/2000/svg" width="280" height="200">
         <defs>
             <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -5019,10 +4507,10 @@ def _format_import_recording(rec: dict, username: str) -> Optional[dict]:
 
 @app.get("/api/recordings/{username}")
 async def list_recordings(username: str, show_ts: bool = False):
-    """Liste les enregistrements (MP4 convertis ou TS bruts)"""
+    """List recordings (converted MP4 or raw TS)"""
     from datetime import datetime
 
-    # Récupérer depuis SQLite
+    # Fetch from SQLite
     recordings_db = await db.get_recordings(username)
 
     recordings = []
@@ -5055,11 +4543,11 @@ async def list_recordings(username: str, show_ts: bool = False):
 
         stat = serve_path.stat()
 
-        # Miniature
+        # Thumbnail
         thumb_path = thumbnails_dir / f"{serve_path.stem}.jpg"
         thumb_url = f"/api/recording-thumbnail/{username}/{serve_path.stem}.jpg"
 
-        # Formater la durée
+        # Format the duration
         duration_seconds = rec.get('duration_seconds', 0)
         if (
             (duration_seconds and duration_seconds < MIN_RECORDING_SECONDS)
@@ -5114,19 +4602,19 @@ async def list_recordings(username: str, show_ts: bool = False):
 
 @app.post("/api/recordings/{recording_id}/retry-conversion")
 async def retry_conversion(recording_id: str):
-    """Réinitialise le compteur d'échecs pour forcer une nouvelle tentative de conversion."""
+    """Reset the failure counter to force another conversion attempt."""
     rec = await db.get_recording_by_id(recording_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Recording not found")
     if rec.get('is_converted'):
-        return {"success": True, "message": "Déjà converti", "alreadyConverted": True}
+        return {"success": True, "message": "Already converted", "alreadyConverted": True}
     ts_path = Path(rec.get('file_path', ''))
     if not ts_path.exists():
         raise HTTPException(status_code=404, detail="Source TS file not found")
     reset = await db.reset_conversion_failure(recording_id)
     return {
         "success": reset,
-        "message": "Conversion programmée au prochain scan (~30s)",
+        "message": "Conversion scheduled on next scan (~30s)",
         "recordingId": recording_id
     }
 
@@ -5303,7 +4791,7 @@ async def get_media_library(
     limit: int = 1000,
     offset: int = 0,
 ):
-    """Liste les médias présents dans les dossiers records."""
+    """List media present in the records folders."""
 
     metadata_mode = (metadata or "full").strip().lower()
     refresh_metadata = metadata_mode not in {"lazy", "fast", "0", "false", "no"}
@@ -5940,7 +5428,7 @@ async def nginx_mac_download(token: str):
 
 @app.get("/api/media-profiles/{username}")
 async def get_media_profile(username: str):
-    """Retourne la fiche enrichie et les réglages stream d'un profil média."""
+    """Return the enriched profile card and stream settings for a media profile."""
     username = _validate_media_profile_username(username)
     profile_dir = _media_profile_dir(username)
     profile = await db.get_media_profile(username)
@@ -5953,7 +5441,7 @@ async def get_media_profile(username: str):
 
 @app.get("/api/media-profiles/{username}/profile-image")
 async def get_media_profile_image(username: str):
-    """Retourne l'image verticale dédiée d'un profil média."""
+    """Return the dedicated vertical image for a media profile."""
     username = _validate_media_profile_username(username)
     profile = await db.get_media_profile(username)
     if not profile:
@@ -5974,7 +5462,7 @@ async def get_media_profile_image(username: str):
 
 @app.post("/api/media-profiles/{username}/profile-image/resolve")
 async def resolve_media_profile_image(username: str, body: dict):
-    """Récupère et cache une image verticale de profil depuis Babepedia ou une URL d'image."""
+    """Fetch and cache a vertical profile image from Babepedia or an image URL."""
     username = _validate_media_profile_username(username)
     existing_profile = await db.get_media_profile(username) or {"username": username}
     resolved = await _resolve_profile_image_from_babepedia(username, existing_profile, body or {})
@@ -5989,7 +5477,7 @@ async def resolve_media_profile_image(username: str, body: dict):
             if path.exists() and path.is_file() and _path_is_inside_output(path):
                 path.unlink()
         except OSError as e:
-            logger.debug("Ancienne image profil non supprimée", username=username, error=str(e))
+            logger.debug("Old profile image not deleted", username=username, error=str(e))
 
     await db.upsert_media_profile(username, {
         **existing_profile,
@@ -6011,7 +5499,7 @@ async def resolve_media_profile_image(username: str, body: dict):
 
 @app.put("/api/media-profiles/{username}")
 async def update_media_profile(username: str, body: dict):
-    """Met à jour les informations locales et les réglages stream d'un profil."""
+    """Update a profile's local info and stream settings."""
     body = body or {}
     username = _validate_media_profile_username(username)
     existing_profile = await db.get_media_profile(username) or {"username": username}
@@ -6127,7 +5615,7 @@ async def update_media_profile(username: str, body: dict):
 
 @app.post("/api/media-profiles/link-live")
 async def link_live_to_media_profile(body: dict):
-    """Lie le live courant à un profil Media existant ou nouvellement créé."""
+    """Link the current live to an existing or newly created Media profile."""
     body = body or {}
     live_username = _normalize_live_channel_username(
         body.get("liveUsername")
@@ -6221,7 +5709,7 @@ async def link_live_to_media_profile(body: dict):
 
 @app.patch("/api/media-profiles/{username}/auto-record")
 async def toggle_media_profile_auto_record(username: str, body: dict):
-    """Active ou suspend l'enregistrement automatique de toutes les sources."""
+    """Enable or suspend automatic recording for all sources."""
     username = _validate_media_profile_username(username)
     profile = await db.get_media_profile(username)
     sources = await db.get_media_profile_sources(username)
@@ -6281,13 +5769,6 @@ async def toggle_media_profile_auto_record(username: str, body: dict):
             stopped = await asyncio.to_thread(manager.stop_session, session_id)
             if stopped and ffmpeg_session:
                 await _index_ffmpeg_recording(ffmpeg_session)
-            if not stopped:
-                browser_session = browser_capture_manager.get(session_id)
-                stopped = await asyncio.to_thread(browser_capture_manager.stop_session, session_id)
-                if stopped and browser_session:
-                    index_future = getattr(browser_session, "_index_future", None)
-                    if index_future is not None:
-                        await asyncio.wrap_future(index_future)
             if stopped:
                 stopped_ids.append(session_id)
 
@@ -6310,7 +5791,7 @@ def _assert_media_profile_not_active(username: str):
 
 @app.delete("/api/media-profiles/{username}")
 async def delete_media_profile(username: str):
-    """Supprime la fiche, les enregistrements DB et le dossier records du profil."""
+    """Delete the profile card, DB recordings, and records folder."""
     username = _validate_media_profile_username(username)
     profile_dir = _media_profile_dir(username)
     _assert_media_profile_not_active(username)
@@ -6358,7 +5839,7 @@ async def delete_media_profile(username: str):
             shutil.rmtree(thumb_dir)
             thumbs_deleted = True
     except OSError as e:
-        logger.warning("Suppression miniatures profil impossible", username=username, error=str(e))
+        logger.warning("Unable to delete profile thumbnails", username=username, error=str(e))
 
     profile_image_deleted = False
     image_path = Path((profile or {}).get("profile_image_path") or "")
@@ -6367,10 +5848,10 @@ async def delete_media_profile(username: str):
             image_path.unlink()
             profile_image_deleted = True
     except OSError as e:
-        logger.warning("Suppression image profil impossible", username=username, error=str(e))
+        logger.warning("Unable to delete profile image", username=username, error=str(e))
 
     logger.info(
-        "Profil média supprimé",
+        "Media profile deleted",
         username=username,
         folder_deleted=folder_deleted,
         removed_recordings=removed_recordings,
@@ -6517,7 +5998,7 @@ async def _delete_media_library_record(username: str, media_path: Path, relative
                 path.unlink()
                 deleted_files.append(path.name)
         except OSError as e:
-            logger.warning("Suppression média impossible", path=str(path), error=str(e))
+            logger.warning("Unable to delete media", path=str(path), error=str(e))
 
     if rec:
         if recording_id:
@@ -6539,7 +6020,7 @@ async def _delete_media_library_record(username: str, media_path: Path, relative
 
 @app.delete("/api/media-library/{username}/{file_path:path}")
 async def delete_media_library_item(username: str, file_path: str):
-    """Supprime un média depuis la bibliothèque locale records."""
+    """Delete a media item from the local records library."""
     media_path = _resolve_library_media_path(username, file_path)
     if media_path.suffix.lower() == ".ts":
         raise HTTPException(status_code=400, detail="TS files are not supported in Media")
@@ -6549,7 +6030,7 @@ async def delete_media_library_item(username: str, file_path: str):
     _assert_media_not_active(username, media_path)
     result = await _delete_media_library_record(username, media_path, file_path)
     logger.info(
-        "Média bibliothèque supprimé",
+        "Library media deleted",
         username=username,
         file=file_path,
         deleted_files=result.get("deletedFiles", []),
@@ -6599,7 +6080,7 @@ async def delete_media_library_batch(body: MediaBatchDeleteBody):
             "filename": item["filename"],
             "deletedFiles": result.get("deletedFiles", []),
         })
-    logger.info("Médias supprimés par lot", count=len(deleted))
+    logger.info("Media deleted in batch", count=len(deleted))
     return {"success": True, "deletedCount": len(deleted), "deleted": deleted}
 
 
@@ -6701,7 +6182,7 @@ async def get_all_recordings(
 
 @app.get("/api/recording-thumbnail/{username}/{filename}")
 async def get_recording_thumbnail(username: str, filename: str):
-    """Récupère la miniature d'un enregistrement"""
+    """Fetch a recording thumbnail"""
     from fastapi.responses import FileResponse, Response
 
     username = _validate_media_profile_username(username)
@@ -6714,7 +6195,7 @@ async def get_recording_thumbnail(username: str, filename: str):
         or Path(filename).name != filename
         or Path(filename).suffix.lower() not in {".jpg", ".jpeg"}
     ):
-        raise HTTPException(status_code=400, detail="Nom invalide")
+        raise HTTPException(status_code=400, detail="Invalid name")
 
     thumbnails_root = (OUTPUT_DIR / "thumbnails").resolve()
     profile_root = (thumbnails_root / username).resolve()
@@ -6732,10 +6213,10 @@ async def get_recording_thumbnail(username: str, filename: str):
             headers={"Cache-Control": "public, max-age=86400"}
         )
 
-    # Placeholder SVG si pas de miniature
+    # SVG placeholder when no thumbnail is found
     svg = '''<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">
         <rect fill="#1a1f3a" width="320" height="180"/>
-        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#a0aec0" font-size="16">📹 Génération...</text>
+        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#a0aec0" font-size="16">📹 Generating...</text>
     </svg>'''
 
     return Response(content=svg, media_type="image/svg+xml")
@@ -6743,11 +6224,11 @@ async def get_recording_thumbnail(username: str, filename: str):
 
 @app.get("/api/models")
 async def get_models():
-    """Récupère la liste des modèles depuis SQLite.
+    """Fetch the model list from SQLite.
 
-    Jamais 500 : en cas d'erreur transitoire (ex : verrou SQLite pendant une
-    écriture par un background task), on renvoie une liste vide pour éviter de
-    casser l'affichage côté front. Le prochain fetch récupérera l'état correct.
+    Never 500: on a transient error (e.g. SQLite lock during a
+    write by a background task), return an empty list to avoid
+    breaking the front-end display. The next fetch will get the correct state.
     """
     try:
         models = await db.get_all_models()
@@ -6765,7 +6246,7 @@ async def get_models():
             })
         return {"models": formatted_models}
     except Exception as e:
-        logger.error("Erreur /api/models", error=str(e), exc_info=True)
+        logger.error("Error /api/models", error=str(e), exc_info=True)
         return {"models": [], "error": "transient"}
 
 
@@ -6774,7 +6255,7 @@ async def get_model_volume(username: str):
     """Return the saved playback volume for one profile."""
     username = (username or "").strip()
     if not username:
-        raise HTTPException(status_code=400, detail="Username requis")
+        raise HTTPException(status_code=400, detail="Username required")
 
     return {
         "username": username,
@@ -6787,7 +6268,7 @@ async def update_model_volume(username: str, body: ModelVolumeBody):
     """Persist the playback volume for one profile."""
     username = (username or "").strip()
     if not username:
-        raise HTTPException(status_code=400, detail="Username requis")
+        raise HTTPException(status_code=400, detail="Username required")
 
     volume = float(body.volume)
     if not 0 <= volume <= 1:
@@ -6803,7 +6284,7 @@ async def update_model_volume(username: str, body: ModelVolumeBody):
 
 @app.post("/api/models")
 async def add_model(model: dict):
-    """Ajoute un modèle dans SQLite"""
+    """Add a model in SQLite"""
     raw_username = str(model.get('username') or "").strip()
     source_from_url = _source_type_from_url(raw_username)
     username = (
@@ -6812,7 +6293,7 @@ async def add_model(model: dict):
         else raw_username
     )
     if not username:
-        raise HTTPException(status_code=400, detail="Username requis")
+        raise HTTPException(status_code=400, detail="Username required")
 
     requested_source = _normalize_source_type(
         model.get("sourceType") or model.get("source_type") or source_from_url
@@ -6821,10 +6302,10 @@ async def add_model(model: dict):
     if source_type not in _available_source_types():
         raise HTTPException(
             status_code=400,
-            detail=f"Source '{source_type}' non disponible",
+            detail=f"Source '{source_type}' unavailable",
         )
 
-    # Vérifier si le modèle existe déjà
+    # Check whether the model already exists
     existing = await db.get_model(username, source_type=source_type)
     if existing:
         raise HTTPException(status_code=409, detail="Model already exists")
@@ -6847,7 +6328,7 @@ async def add_model(model: dict):
         username,
     )
 
-    # Ajouter dans SQLite
+    # Add to SQLite
     await db.add_or_update_model(
         username=username,
         auto_record=auto_record,
@@ -6857,7 +6338,7 @@ async def add_model(model: dict):
         source_type=source_type,
     )
 
-    # Récupérer tous les modèles pour retourner
+    # Fetch all models to return
     all_models = await db.get_all_models()
     formatted = [{
         "username": m['username'],
@@ -6874,17 +6355,17 @@ async def add_model(model: dict):
 
 @app.put("/api/models/{username}")
 async def update_model(username: str, model_data: dict):
-    """Met à jour les paramètres d'un modèle dans SQLite"""
+    """Update a model's settings in SQLite"""
     requested_source = _normalize_source_type(
         model_data.get('sourceType') or model_data.get('source_type')
     )
     if requested_source and requested_source not in _available_source_types():
         raise HTTPException(
             status_code=400,
-            detail=f"Source '{requested_source}' non disponible",
+            detail=f"Source '{requested_source}' unavailable",
         )
 
-    # Vérifier si le modèle existe
+    # Check whether the model exists
     existing = await db.get_model(username, source_type=requested_source)
     if not existing:
         raise HTTPException(status_code=404, detail="Model not found")
@@ -6906,7 +6387,7 @@ async def update_model(username: str, model_data: dict):
     else:
         record_path = existing.get("record_path")
 
-    # Mettre à jour dans SQLite
+    # Update in SQLite
     await db.add_or_update_model(
         username=username,
         auto_record=model_data.get('autoRecord', existing.get('auto_record', True)),
@@ -6916,7 +6397,7 @@ async def update_model(username: str, model_data: dict):
         source_type=source_type,
     )
 
-    # Récupérer le modèle mis à jour
+    # Fetch the updated model
     updated = await db.get_model(username, source_type=source_type)
 
     return {
@@ -6935,17 +6416,17 @@ async def update_model(username: str, model_data: dict):
 
 @app.delete("/api/models/{username}")
 async def delete_model(username: str, source: Optional[str] = None):
-    """Supprime un modèle de SQLite"""
+    """Delete a model from SQLite"""
     source_type = _normalize_source_type(source)
-    # Vérifier si le modèle existe
+    # Check whether the model exists
     existing = await db.get_model(username, source_type=source_type)
     if not existing:
         raise HTTPException(status_code=404, detail="Model not found")
 
-    # Supprimer de SQLite
+    # Delete from SQLite
     await db.delete_model(username, source_type=source_type)
 
-    # Récupérer la liste mise à jour
+    # Fetch the updated list
     all_models = await db.get_all_models()
     formatted = [{
         "username": m['username'],
@@ -6962,7 +6443,7 @@ async def delete_model(username: str, source: Optional[str] = None):
 
 @app.delete("/api/recordings/{username}/{filename}")
 async def delete_recording(username: str, filename: str):
-    """Supprime un enregistrement (TS + MP4 + miniature + DB)"""
+    """Delete a recording (TS + MP4 + thumbnail + DB)"""
 
     username = _validate_media_profile_username(username)
     if (
@@ -6973,7 +6454,7 @@ async def delete_recording(username: str, filename: str):
         or "\x00" in filename
         or Path(filename).name != filename
     ):
-        raise HTTPException(status_code=400, detail="Nom invalide")
+        raise HTTPException(status_code=400, detail="Invalid name")
 
     existing_recs = await db.get_recordings(username)
     matching_rec = next((
@@ -6994,15 +6475,15 @@ async def delete_recording(username: str, filename: str):
             raise HTTPException(status_code=404, detail="Imported media not found")
         return {
             "success": True,
-            "message": "Média importé supprimé",
+            "message": "Imported media deleted",
             "deleted_files": ["Import"],
         }
 
     allowed_extensions = {".ts", ".mp4"} | SUPPORTED_VIDEO_EXTENSIONS
     if Path(filename).suffix.lower() not in allowed_extensions:
-        raise HTTPException(status_code=400, detail="Format invalide")
+        raise HTTPException(status_code=400, detail="Invalid format")
 
-    # Vérifier que ce n'est pas l'enregistrement en cours
+    # Ensure this is not the in-progress recording
     file_stem = Path(filename).stem
 
     paths_to_delete: list[tuple[Path, str]] = []
@@ -7010,8 +6491,8 @@ async def delete_recording(username: str, filename: str):
         for key, label in (
             ("file_path", "TS"),
             ("mp4_path", "MP4"),
-            ("playable_path", "Fichier"),
-            ("thumbnail_path", "Miniature"),
+            ("playable_path", "File"),
+            ("thumbnail_path", "Thumbnail"),
         ):
             value = matching_rec.get(key)
             if value:
@@ -7021,26 +6502,26 @@ async def delete_recording(username: str, filename: str):
             _assert_recording_not_active(username, selected)
             paths_to_delete.append((selected.with_suffix(".ts"), "TS"))
             paths_to_delete.append((selected.with_suffix(".mp4"), "MP4"))
-            paths_to_delete.append((OUTPUT_DIR / "thumbnails" / username / f"{selected.stem}.jpg", "Miniature"))
+            paths_to_delete.append((OUTPUT_DIR / "thumbnails" / username / f"{selected.stem}.jpg", "Thumbnail"))
     else:
         records_dir = OUTPUT_DIR / "records" / username
         paths_to_delete.extend([
             (records_dir / f"{file_stem}.ts", "TS"),
             (records_dir / f"{file_stem}.mp4", "MP4"),
-            (records_dir / filename, Path(filename).suffix.upper().lstrip(".") or "Fichier"),
-            (OUTPUT_DIR / "thumbnails" / username / f"{file_stem}.jpg", "Miniature"),
+            (records_dir / filename, Path(filename).suffix.upper().lstrip(".") or "File"),
+            (OUTPUT_DIR / "thumbnails" / username / f"{file_stem}.jpg", "Thumbnail"),
         ])
         _assert_recording_not_active(username, records_dir / filename)
 
-    # Si les fichiers ont déjà disparu (cleanup externe, volume remonté, etc.)
-    # on doit quand même pouvoir nettoyer la row DB orpheline — sinon elle
-    # reste affichée dans /recordings sans jamais pouvoir être retirée.
+    # If the files are already gone (external cleanup, remounted volume, etc.)
+    # we must still be able to clean up the orphan DB row — otherwise it
+    # stays shown on /recordings and can never be removed.
     has_db_row = any(Path(r['filename']).stem == file_stem for r in existing_recs)
 
     if not any(path.exists() for path, _ in paths_to_delete) and not has_db_row:
         raise HTTPException(status_code=404, detail="Recording not found")
 
-    # Supprimer tous les fichiers associés
+    # Delete all associated files
     try:
         files_deleted = []
 
@@ -7051,31 +6532,31 @@ async def delete_recording(username: str, filename: str):
                 continue
             seen_paths.add(key)
             if not _recording_delete_path_is_allowed(path, username):
-                logger.warning("Suppression recording hors profil ignorée", username=username, path=str(path))
+                logger.warning("Recording delete outside profile ignored", username=username, path=str(path))
                 continue
             if path.exists() and path.is_file():
                 path.unlink()
                 files_deleted.append(label)
-                logger.info("Fichier recording supprimé", username=username, file=path.name, label=label)
+                logger.info("Recording file deleted", username=username, file=path.name, label=label)
 
-        # Supprimer de la base de données
+        # Delete from the database
         await db.delete_recording(username, filename)
         if matching_rec and matching_rec.get("filename") != filename:
             await db.delete_recording(username, matching_rec.get("filename"))
         if filename != f"{file_stem}.ts":
             await db.delete_recording(username, f"{file_stem}.ts")
-        logger.info("Enregistrement supprimé de la DB", username=username, filename=filename)
+        logger.info("Recording deleted from DB", username=username, filename=filename)
 
         if not files_deleted and has_db_row:
-            files_deleted.append("DB (row orpheline)")
+            files_deleted.append("DB (orphan row)")
 
         return {
             "success": True,
-            "message": f"Supprimé: {', '.join(files_deleted)}",
+            "message": f"Deleted: {', '.join(files_deleted)}",
             "deleted_files": files_deleted
         }
     except Exception as e:
-        logger.error("Erreur suppression enregistrement",
+        logger.error("Recording delete error",
                     username=username,
                     filename=filename,
                     error=str(e),
@@ -7855,7 +7336,7 @@ async def toggle_auto_record(username: str, body: dict):
     if requested_source and requested_source not in _available_source_types():
         raise HTTPException(
             status_code=400,
-            detail=f"Source '{requested_source}' non disponible",
+            detail=f"Source '{requested_source}' unavailable",
         )
     existing = await db.get_model(username, source_type=requested_source)
     if not existing:
@@ -8141,30 +7622,30 @@ async def get_recordings_by_model(show_ts: bool = False):
 
 @app.post("/api/recordings/recalculate-durations")
 async def recalculate_all_durations():
-    """Recalcule les durées de tous les enregistrements"""
-    logger.info("API: Demande de recalcul des durées", endpoint="/api/recordings/recalculate-durations")
+    """Recalculate durations for all recordings"""
+    logger.info("API: duration recalculation request", endpoint="/api/recordings/recalculate-durations")
 
     try:
-        # Créer une tâche en arrière-plan
+        # Create a background task
         asyncio.create_task(_recalculate_durations_task())
 
         return {
             "success": True,
-            "message": "Recalcul des durées démarré en arrière-plan"
+            "message": "Duration recalculation started in background"
         }
     except Exception as e:
-        logger.error("Erreur lancement recalcul durées", error=str(e), exc_info=True)
+        logger.error("Error starting duration recalculation", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 async def _recalculate_durations_task():
-    """Tâche de recalcul des durées en arrière-plan"""
+    """Background duration recalculation task"""
     from app.tasks.monitor import generate_recording_thumbnail, get_media_created_at, get_video_duration
 
-    logger.background_task("recalculate-durations", "Démarrage du recalcul")
+    logger.background_task("recalculate-durations", "Starting recalculation")
 
     try:
-        # Récupérer tous les modèles
+        # Fetch all models
         models = await db.get_all_models()
 
         total_processed = 0
@@ -8177,7 +7658,7 @@ async def _recalculate_durations_task():
             if not records_dirs:
                 continue
 
-            logger.info("Recalcul durées", username=username, task="recalculate-durations")
+            logger.info("Recalculating durations", username=username, task="recalculate-durations")
 
             ts_files = []
             for records_dir in records_dirs:
@@ -8187,7 +7668,7 @@ async def _recalculate_durations_task():
                 try:
                     total_processed += 1
 
-                    # Récupérer l'enregistrement depuis la DB
+                    # Fetch the recording from the DB
                     recordings = await db.get_recordings(username)
                     existing_rec = next((r for r in recordings if r['filename'] == ts_file.name), None)
 
@@ -8195,17 +7676,17 @@ async def _recalculate_durations_task():
                     if existing_rec:
                         current_duration = existing_rec.get('duration_seconds', 0)
 
-                    # Calculer la durée si elle est à 0
+                    # Compute duration if it is 0
                     if current_duration == 0:
                         duration = await get_video_duration(ts_file, FFMPEG_PATH)
 
                         if duration > 0:
-                            # Générer aussi la miniature
+                            # Also generate the thumbnail
                             thumbnail_path = await generate_recording_thumbnail(
                                 ts_file, OUTPUT_DIR, username, FFMPEG_PATH
                             )
 
-                            # Mettre à jour dans la DB
+                            # Update in the DB
                             await db.add_or_update_recording(
                                 username=username,
                                 filename=ts_file.name,
@@ -8222,39 +7703,39 @@ async def _recalculate_durations_task():
 
                             total_updated += 1
 
-                            logger.success("Durée calculée",
+                            logger.success("Duration computed",
                                          username=username,
                                          filename=ts_file.name,
                                          duration=duration)
 
                 except Exception as e:
-                    logger.error("Erreur recalcul fichier",
+                    logger.error("File recalculation error",
                                username=username,
                                filename=ts_file.name,
                                error=str(e))
                     continue
 
-        logger.success("Recalcul terminé",
+        logger.success("Recalculation finished",
                       task="recalculate-durations",
                       updated=total_updated,
                       total=total_processed)
 
     except Exception as e:
-        logger.error("Erreur tâche recalcul durées",
+        logger.error("Duration recalculation task error",
                     task="recalculate-durations",
                     error=str(e),
                     exc_info=True)
 
 
 # ============================================
-# Background Task - Auto-enregistrement
+# Background Task - Auto-recording
 # ============================================
 
 async def ffmpeg_watchdog_task():
     """Stop FFmpeg sessions that stay alive without writing any TS data."""
     timeout = getattr(manager, "stall_timeout_seconds", 180)
     if timeout <= 0:
-        logger.info("FFmpeg watchdog désactivé", task="ffmpeg-watchdog")
+        logger.info("FFmpeg watchdog disabled", task="ffmpeg-watchdog")
         return
 
     while True:
@@ -8262,7 +7743,7 @@ async def ffmpeg_watchdog_task():
             stopped = manager.stop_stalled_sessions(timeout)
             if stopped:
                 logger.warning(
-                    "Sessions FFmpeg bloquées arrêtées",
+                    "Stuck FFmpeg sessions stopped",
                     task="ffmpeg-watchdog",
                     count=len(stopped),
                     sessions=stopped,
@@ -8270,7 +7751,7 @@ async def ffmpeg_watchdog_task():
             await asyncio.sleep(30)
         except Exception as e:
             logger.error(
-                "Erreur watchdog FFmpeg",
+                "FFmpeg watchdog error",
                 task="ffmpeg-watchdog",
                 error=str(e),
                 exc_info=True,
@@ -8335,7 +7816,7 @@ async def _auto_record_status_for_job(
 
 
 async def auto_record_task():
-    """Vérifie automatiquement les modèles et lance les enregistrements (utilise SQLite)"""
+    """Automatically check models and start recordings (uses SQLite)"""
     failure_cooldowns: dict[str, float] = {}
     while True:
         try:
@@ -8387,7 +7868,7 @@ async def auto_record_task():
             if not jobs:
                 continue
 
-            # Récupérer les sessions actives
+            # Fetch active sessions
             active_sessions = _all_recording_statuses()
 
             for job in jobs:
@@ -8399,7 +7880,7 @@ async def auto_record_task():
                 if cooldown_until > time.time():
                     continue
 
-                # Vérifier si déjà en enregistrement
+                # Check whether already recording
                 is_recording = any(
                     s.get("running")
                     and (
@@ -8414,9 +7895,9 @@ async def auto_record_task():
                 )
 
                 if is_recording:
-                    continue  # Déjà en cours
+                    continue  # Already in progress
 
-                # Vérifier le statut depuis le cache SQLite (mis à jour par monitor)
+                # Check status from SQLite cache (updated by monitor)
                 cached_status = await db.get_model(target_username, source_type=source_hint)
                 cached_status = await _auto_record_status_for_job(
                     source_hint,
@@ -8425,7 +7906,7 @@ async def auto_record_task():
                 )
 
                 if cached_status and cached_status.get('is_online'):
-                    # Modèle en ligne: résoudre le flux HLS
+                    # Model online: resolve HLS stream
                     try:
                         hls_source = None
                         hls_source_url = None
@@ -8438,7 +7919,7 @@ async def auto_record_task():
                         source_type = await _infer_source_type(target_username, cached_status)
                         if source_type not in _available_source_types():
                             logger.warning(
-                                "Source inconnue pour auto-record",
+                                "Unknown source for auto-record",
                                 task="auto-record",
                                 username=target_username,
                                 source_type=source_type,
@@ -8447,65 +7928,27 @@ async def auto_record_task():
                         record_dir = _record_dir_from_path(
                             _normalize_record_path(job.get("record_path"), profile_username)
                         )
-                        if _supports_browser_capture(source_type):
-                            logger.background_task("auto-record", "Modèle WebRTC en ligne détecté", username=target_username)
-                            try:
-                                await _ensure_browser_capture_session(source_type)
-                                sess = _start_browser_capture(
-                                    source_type,
-                                    target_username,
-                                    person=profile_username,
-                                    display_name=job["display_name"],
-                                    record=True,
-                                    filename_format=filename_format,
-                                    records_dir_for_person=record_dir,
-                                    target_username=target_username,
-                                    session_key=session_key,
-                                )
-                                ready = await asyncio.to_thread(sess.wait_until_ready, 35)
-                                if not ready:
-                                    await asyncio.to_thread(browser_capture_manager.stop_session, sess.id)
-                                    raise RuntimeError("Aucun flux video capturable dans le navigateur")
-                                logger.success("Auto-enregistrement browser démarré",
-                                             task="auto-record",
-                                             username=target_username,
-                                             profile=profile_username,
-                                             session_id=sess.id)
-                                active_sessions = _all_recording_statuses()
-                            except RuntimeError as e:
-                                logger.warning("Impossible démarrer browser capture",
-                                             task="auto-record",
-                                             username=target_username,
-                                             error=str(e))
-                                failure_cooldowns[session_key] = time.time() + failure_cooldown_seconds
-                            except ProviderError as e:
-                                logger.warning("Browser capture refusee",
-                                             task="auto-record",
-                                             username=target_username,
-                                             error=str(e))
-                                failure_cooldowns[session_key] = time.time() + failure_cooldown_seconds
-                        else:
-                            try:
-                                resolved = await _resolve_stream(
-                                    source_type,
-                                    target_username,
-                                    max_height,
-                                    pin_variant=True,
-                                )
-                                ffmpeg_video_stream_index = resolved.ffmpeg_video_stream_index
-                                hls_source, stream_headers, hls_source_url = _ffmpeg_stream_input(resolved)
-                            except Exception as e:
-                                logger.debug(
-                                    "Auto-record resolve échec",
-                                    task="auto-record",
-                                    username=target_username,
-                                    error=str(e),
-                                )
-                                failure_cooldowns[session_key] = time.time() + failure_cooldown_seconds
+                        try:
+                            resolved = await _resolve_stream(
+                                source_type,
+                                target_username,
+                                max_height,
+                                pin_variant=True,
+                            )
+                            ffmpeg_video_stream_index = resolved.ffmpeg_video_stream_index
+                            hls_source, stream_headers, hls_source_url = _ffmpeg_stream_input(resolved)
+                        except Exception as e:
+                            logger.debug(
+                                "Auto-record resolve failed",
+                                task="auto-record",
+                                username=target_username,
+                                error=str(e),
+                            )
+                            failure_cooldowns[session_key] = time.time() + failure_cooldown_seconds
 
                         if hls_source:
-                            # Lancer l'enregistrement
-                            logger.background_task("auto-record", "Modèle en ligne détecté", username=target_username, profile=profile_username)
+                            # Start recording
+                            logger.background_task("auto-record", "Model detected online", username=target_username, profile=profile_username)
 
                             try:
                                 segment_duration_seconds, segment_size_bytes = await _get_recording_segment_limits()
@@ -8528,7 +7971,7 @@ async def auto_record_task():
                                 )
 
                                 if sess:
-                                    logger.success("Auto-enregistrement démarré",
+                                    logger.success("Auto-recording started",
                                                    task="auto-record",
                                                    username=target_username,
                                                    profile=profile_username,
@@ -8536,7 +7979,7 @@ async def auto_record_task():
                                     failure_cooldowns.pop(session_key, None)
                                     active_sessions = _all_recording_statuses()
                             except RuntimeError as e:
-                                logger.warning("Impossible démarrer enregistrement",
+                                logger.warning("Unable to start recording",
                                              task="auto-record",
                                              username=target_username,
                                              error=str(e))
@@ -8544,7 +7987,7 @@ async def auto_record_task():
                                 continue
 
                     except Exception as e:
-                        logger.error("Erreur vérification modèle",
+                        logger.error("Model check error",
                                    task="auto-record",
                                    username=target_username,
                                    error=str(e))
@@ -8552,7 +7995,7 @@ async def auto_record_task():
                         continue
 
         except Exception as e:
-            logger.error("Erreur auto-record task", task="auto-record", exc_info=True, error=str(e))
+            logger.error("Auto-record task error", task="auto-record", exc_info=True, error=str(e))
             await asyncio.sleep(60)
 
 
@@ -8632,7 +8075,7 @@ async def cleanup_old_recordings_once(now_timestamp: Optional[float] = None) -> 
     }
     for (username, retention_days), record_dirs in grouped_jobs.items():
         if retention_days == 0:
-            logger.debug("Rétention infinie, skip", task="cleanup", username=username)
+            logger.debug("Infinite retention, skip", task="cleanup", username=username)
             continue
         current_paths = {str(path.resolve()) for path in record_dirs}
         excluded_dirs = []
@@ -8654,19 +8097,19 @@ async def cleanup_old_recordings_once(now_timestamp: Optional[float] = None) -> 
         for key in totals:
             totals[key] += result.get(key, 0)
 
-    logger.info("Nettoyage rétention terminé", task="cleanup", **totals)
+    logger.info("Retention cleanup finished", task="cleanup", **totals)
     return totals
 
 
 async def cleanup_old_recordings_task():
-    """Nettoie automatiquement les anciennes rediffusions selon la rétention configurée"""
+    """Automatically clean old recordings according to configured retention"""
     while True:
         try:
             await asyncio.sleep(3600)
-            logger.background_task("cleanup", "Début nettoyage anciennes rediffusions")
+            logger.background_task("cleanup", "Starting cleanup of old recordings")
             await cleanup_old_recordings_once()
         except Exception as e:
-            logger.error("Erreur cleanup task", task="cleanup", exc_info=True, error=str(e))
+            logger.error("Cleanup task error", task="cleanup", exc_info=True, error=str(e))
             await asyncio.sleep(3600)
 
 
@@ -8710,15 +8153,15 @@ async def sync_following_task(source_type: str = "chaturbate"):
 
 @app.on_event("startup")
 async def startup_event():
-    """Démarre les background tasks au démarrage de l'application"""
-    # Initialiser la base de données
+    """Start background tasks on application startup"""
+    # Initialize the database
     await db.initialize()
 
-    # Migrer les données depuis le JSON si nécessaire
+    # Migrate data from JSON if needed
     await db.migrate_from_json(MODELS_FILE)
     repaired_sources = await db.reconcile_model_sources_from_followed()
     if repaired_sources:
-        logger.info("Sources modèles réparées depuis les favoris", count=repaired_sources)
+        logger.info("Model sources repaired from favorites", count=repaired_sources)
     await _import_auto_record_users_from_env()
 
     # Initialize FlareSolverr client.
@@ -8738,7 +8181,7 @@ async def startup_event():
 
     if fs_status and fs_status["available"]:
         logger.info(
-            "FlareSolverr connecté",
+            "FlareSolverr connected",
             url=flare_url,
             version=fs_status.get("version"),
         )
@@ -8747,7 +8190,7 @@ async def startup_event():
         # issues without having to dig through DEBUG logs.
         reason = (fs_status or {}).get("message") or "unknown"
         logger.warning(
-            "FlareSolverr non disponible (optionnel)",
+            "FlareSolverr unavailable (optional)",
             url=flare_url,
             reason=reason,
         )
@@ -8792,7 +8235,7 @@ async def startup_event():
     from .resolvers.chaturbate import set_chaturbate_api
     set_chaturbate_api(cb_api)
 
-    # Démarrer les tâches de fond
+    # Start background tasks
     asyncio.create_task(monitor_models_task(
         db,
         manager,
@@ -8809,5 +8252,5 @@ async def startup_event():
         global media_import_manager
         media_import_manager = MediaImportManager(db, OUTPUT_DIR, FFMPEG_PATH)
         asyncio.create_task(media_imports_task(media_import_manager))
-    logger.info("Background tasks démarrés",
+    logger.info("Background tasks started",
                 tasks=["monitor", "ffmpeg-watchdog", "auto-record", "following-sync", "cleanup", "convert"])

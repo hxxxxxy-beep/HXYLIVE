@@ -571,11 +571,6 @@ class DiscoverRankingService:
         self._inflight: Dict[str, asyncio.Future] = {}
         self._lock = asyncio.Lock()
 
-    # Back-compat alias used by older tests / callers.
-    @property
-    def _snapshots(self) -> Dict[str, RankingSnapshot]:
-        return self._by_filters_hash
-
     def _forget_snapshot(self, snap: RankingSnapshot, *, as_expired: bool = False) -> None:
         if self._by_pool_id.get(snap.pool_id) is snap:
             del self._by_pool_id[snap.pool_id]

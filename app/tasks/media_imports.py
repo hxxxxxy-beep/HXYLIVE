@@ -187,7 +187,7 @@ async def generate_import_thumbnail(
             return str(thumb_path)
         temporary.unlink(missing_ok=True)
         logger.debug(
-            "Miniature import non générée",
+            "Import thumbnail not generated",
             username=username,
             filename=source_path.name,
             seek=seek,
@@ -328,7 +328,7 @@ async def remove_import_record(
                 path.unlink()
         except Exception as e:
             logger.warning(
-                "Impossible supprimer fichier import associé",
+                "Unable to delete associated import file",
                 recording_id=recording_id,
                 path=str(path),
                 reason=reason,
@@ -337,7 +337,7 @@ async def remove_import_record(
 
     await db.delete_recording_by_id(recording_id)
     await db.delete_playback_position(recording_id)
-    logger.info("Import média retiré", recording_id=recording_id, reason=reason)
+    logger.info("Media import removed", recording_id=recording_id, reason=reason)
     return True
 
 
@@ -542,7 +542,7 @@ async def scan_media_imports(
                 result["imported"] += 1
 
     result["durationSeconds"] = round(time.time() - started_at, 3)
-    logger.info("Scan imports médias terminé", **result)
+    logger.info("Media imports scan finished", **result)
     return result
 
 
@@ -584,7 +584,7 @@ class MediaImportManager:
 
 
 async def media_imports_task(manager: MediaImportManager, interval_seconds: int = 60):
-    logger.info("Tâche imports médias démarrée", task="media-imports")
+    logger.info("Media imports task started", task="media-imports")
     await manager.scan()
 
     while True:
@@ -593,7 +593,7 @@ async def media_imports_task(manager: MediaImportManager, interval_seconds: int 
             await manager.scan()
         except Exception as e:
             logger.error(
-                "Erreur tâche imports médias",
+                "Error in media imports task",
                 task="media-imports",
                 error=str(e),
                 exc_info=True,

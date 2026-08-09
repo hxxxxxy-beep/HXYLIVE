@@ -34,7 +34,7 @@ STRIPCHAT_API_BASE = f"{STRIPCHAT_BASE_URL}/api/front"
 # Paginated live catalogue with viewersCount. /v2/models now returns homepage
 # recommendation blocks and ignores offset — do not use it for listings.
 STRIPCHAT_MODELS_CATALOGUE_PATH = "/models"
-STRIPCHAT_FRONT_VERSION = os.getenv("PSTREAMREC_STRIPCHAT_FRONT_VERSION", "11.7.28")
+STRIPCHAT_FRONT_VERSION = os.getenv("HXYLIVE_STRIPCHAT_FRONT_VERSION", "11.7.28")
 STRIPCHAT_LOGIN_PATHS = (
     "/auth/login",
     "/v3/auth/login",
@@ -48,7 +48,7 @@ STRIPCHAT_HLS_HOSTS = (
     "doppiocdn.live",
     "doppiocdn.media",
 )
-STRIPCHAT_PLAYBACK_KEY = os.getenv("PSTREAMREC_STRIPCHAT_PLAYBACK_KEY", "fncnu6utiWqsDLk8")
+STRIPCHAT_PLAYBACK_KEY = os.getenv("HXYLIVE_STRIPCHAT_PLAYBACK_KEY", "fncnu6utiWqsDLk8")
 _STRIPCHAT_UNIQUE_POOL_TTL_SECONDS = 45
 _STRIPCHAT_MAX_UPSTREAM_GETS_PER_CALL = 3
 _STRIPCHAT_ZERO_UNIQUE_STOP_WINDOWS = 2
@@ -360,7 +360,7 @@ class StripchatProvider(YtDlpProvider):
         )
         if stream:
             return stream
-        raise ProviderError(f"Stripchat stream introuvable pour {target}")
+        raise ProviderError(f"Stripchat stream not found for {target}")
 
     async def check_status(self, username: str) -> ProviderStatus:
         try:
@@ -1071,7 +1071,7 @@ class StripchatProvider(YtDlpProvider):
         except Exception:
             pass
         timeout = aiohttp.ClientTimeout(
-            total=int(os.getenv("PSTREAMREC_STRIPCHAT_SEARCH_TIMEOUT", "15") or "15")
+            total=int(os.getenv("HXYLIVE_STRIPCHAT_SEARCH_TIMEOUT", "15") or "15")
         )
         try:
             async with aiohttp_client_session(timeout=timeout) as session:
@@ -1539,11 +1539,11 @@ class StripchatProvider(YtDlpProvider):
 
     async def _stripchat_sync_following_http(self) -> list[dict[str, object]]:
         if not await self._stripchat_has_session():
-            raise ProviderAuthError("Connexion Stripchat requise pour synchroniser les favoris")
+            raise ProviderAuthError("Stripchat login required to sync favorites")
 
         models: list[dict[str, object]] = []
-        page_limit = max(1, min(100, int(os.getenv("PSTREAMREC_STRIPCHAT_FAVORITES_LIMIT", "50") or "50")))
-        max_pages = max(1, int(os.getenv("PSTREAMREC_STRIPCHAT_FAVORITES_MAX_PAGES", "20") or "20"))
+        page_limit = max(1, min(100, int(os.getenv("HXYLIVE_STRIPCHAT_FAVORITES_LIMIT", "50") or "50")))
+        max_pages = max(1, int(os.getenv("HXYLIVE_STRIPCHAT_FAVORITES_MAX_PAGES", "20") or "20"))
         for path in ("/models/favorites", "/models/favorites/offline"):
             offset = 0
             for _ in range(max_pages):
@@ -1571,14 +1571,14 @@ class StripchatProvider(YtDlpProvider):
 
     async def _stripchat_follow_http(self, username: str, follow: bool) -> dict[str, object]:
         if not await self._stripchat_has_session():
-            raise ProviderAuthError("Connexion Stripchat requise")
+            raise ProviderAuthError("Stripchat login required")
         model = await self._stripchat_model_by_username(username)
         model_id = self._stripchat_model_id(model)
         if not model_id:
-            raise ProviderError(f"Modele Stripchat introuvable: {username}")
+            raise ProviderError(f"Stripchat model not found: {username}")
         current_user_id = await self._stripchat_current_user_id()
         if not current_user_id:
-            raise ProviderAuthError("Utilisateur Stripchat connecte introuvable")
+            raise ProviderAuthError("Logged-in Stripchat user not found")
 
         if follow:
             await self._stripchat_api_json(
@@ -1617,7 +1617,7 @@ class StripchatProvider(YtDlpProvider):
         model = self._stripchat_profile_model(payload)
         if model:
             return model
-        raise ProviderError(f"Modele Stripchat introuvable: {username}")
+        raise ProviderError(f"Stripchat model not found: {username}")
 
     async def _resolve_stripchat_public_hls(
         self,
@@ -1639,12 +1639,12 @@ class StripchatProvider(YtDlpProvider):
         )
         model = self._stripchat_profile_model(payload) if isinstance(payload, dict) else None
         if not model:
-            raise ProviderOfflineError(f"Modele Stripchat introuvable ou hors ligne: {username}")
+            raise ProviderOfflineError(f"Stripchat model not found or offline: {username}")
 
         self._validate_stripchat_public_stream(payload, model, username)
         stream_name = self._stripchat_stream_name(payload, model)
         if not stream_name:
-            raise ProviderOfflineError(f"Flux Stripchat introuvable: {username}")
+            raise ProviderOfflineError(f"Stripchat stream not found: {username}")
 
         headers = self._stream_headers(page_url, await self._provider_cookie_header())
         hosts = self._stripchat_hls_hosts_from_payload(payload) or list(STRIPCHAT_HLS_HOSTS)
@@ -1685,7 +1685,7 @@ class StripchatProvider(YtDlpProvider):
                         title=str(item.get("display_name") or username),
                     )
 
-        raise ProviderOfflineError(f"Aucun HLS Stripchat public valide pour {username}")
+        raise ProviderOfflineError(f"No valid public Stripchat HLS for {username}")
 
     async def _stripchat_validated_hls_url(
         self,
@@ -1748,10 +1748,10 @@ class StripchatProvider(YtDlpProvider):
 
     def _stripchat_master_playlist_query(self) -> str:
         params = {
-            "minHeight": os.getenv("PSTREAMREC_STRIPCHAT_MIN_HEIGHT", "240"),
-            "playlistType": os.getenv("PSTREAMREC_STRIPCHAT_PLAYLIST_TYPE", "standard"),
+            "minHeight": os.getenv("HXYLIVE_STRIPCHAT_MIN_HEIGHT", "240"),
+            "playlistType": os.getenv("HXYLIVE_STRIPCHAT_PLAYLIST_TYPE", "standard"),
         }
-        playback_key = (os.getenv("PSTREAMREC_STRIPCHAT_PLAYBACK_KEY", STRIPCHAT_PLAYBACK_KEY) or "").strip()
+        playback_key = (os.getenv("HXYLIVE_STRIPCHAT_PLAYBACK_KEY", STRIPCHAT_PLAYBACK_KEY) or "").strip()
         if playback_key:
             params["pkey"] = playback_key
         return "?" + urlencode(params)
@@ -1874,7 +1874,7 @@ class StripchatProvider(YtDlpProvider):
         username: str,
     ) -> None:
         if self._stripchat_login_requires_interaction(payload):
-            raise ProviderInteractionRequired("Stripchat demande une verification interactive")
+            raise ProviderInteractionRequired("Stripchat requires interactive verification")
 
         cam = payload.get("cam") if isinstance(payload, dict) and isinstance(payload.get("cam"), dict) else {}
         private_indicators = (
@@ -1886,21 +1886,21 @@ class StripchatProvider(YtDlpProvider):
             cam.get("privateShow"),
         )
         if any(self._stripchat_truthy_indicator(value) for value in private_indicators):
-            raise ProviderPrivateError(f"Stripchat/{username}: show prive, groupe ou ticket")
+            raise ProviderPrivateError(f"Stripchat/{username}: private, group, or ticket show")
 
         for value in (model.get("status"), cam.get("streamStatus"), cam.get("status")):
             status = str(value or "").strip().lower()
             if not status:
                 continue
             if any(marker in status for marker in ("private", "group", "ticket", "premium", "spy", "p2p")):
-                raise ProviderPrivateError(f"Stripchat/{username}: show prive, groupe ou ticket")
+                raise ProviderPrivateError(f"Stripchat/{username}: private, group, or ticket show")
             if _stripchat_is_offline_status(status):
-                raise ProviderOfflineError(f"Stripchat/{username}: modele hors ligne")
+                raise ProviderOfflineError(f"Stripchat/{username}: model offline")
 
         if cam.get("isCamAvailable") is False or cam.get("isCamActive") is False:
-            raise ProviderOfflineError(f"Stripchat/{username}: modele hors ligne")
+            raise ProviderOfflineError(f"Stripchat/{username}: model offline")
         if model.get("isOnline") is False or model.get("isLive") is False:
-            raise ProviderOfflineError(f"Stripchat/{username}: modele hors ligne")
+            raise ProviderOfflineError(f"Stripchat/{username}: model offline")
 
     def _stripchat_truthy_indicator(self, value: object) -> bool:
         return _stripchat_truthy_cam_indicator(value)
@@ -1935,7 +1935,7 @@ class StripchatProvider(YtDlpProvider):
 
     async def _stripchat_fetch_hls_playlist(self, playlist_url: str, headers: dict[str, str]) -> Optional[str]:
         try:
-            timeout = aiohttp.ClientTimeout(total=int(os.getenv("PSTREAMREC_STRIPCHAT_HLS_PROBE_TIMEOUT", "12") or "12"))
+            timeout = aiohttp.ClientTimeout(total=int(os.getenv("HXYLIVE_STRIPCHAT_HLS_PROBE_TIMEOUT", "12") or "12"))
             async with aiohttp_client_session(timeout=timeout) as session:
                 async with session.get(
                     playlist_url,
@@ -1944,7 +1944,7 @@ class StripchatProvider(YtDlpProvider):
                     **aiohttp_request_kwargs(),
                 ) as resp:
                     if resp.status in (401, 403):
-                        raise ProviderAuthError("Flux Stripchat refuse ou session requise")
+                        raise ProviderAuthError("Stripchat stream refused or session required")
                     if resp.status >= 400:
                         return None
                     text = await resp.text(errors="ignore")
@@ -1968,7 +1968,7 @@ class StripchatProvider(YtDlpProvider):
         model = self._stripchat_profile_model(payload)
         if model:
             return model
-        raise ProviderAuthError("Utilisateur Stripchat connecte introuvable")
+        raise ProviderAuthError("Logged-in Stripchat user not found")
 
     async def _stripchat_current_user_id(self) -> Optional[int]:
         state = await self._stripchat_session_state()
@@ -2026,10 +2026,10 @@ class StripchatProvider(YtDlpProvider):
         )
 
     def _stripchat_front_version(self) -> str:
-        return (os.getenv("PSTREAMREC_STRIPCHAT_FRONT_VERSION") or STRIPCHAT_FRONT_VERSION).strip() or STRIPCHAT_FRONT_VERSION
+        return (os.getenv("HXYLIVE_STRIPCHAT_FRONT_VERSION") or STRIPCHAT_FRONT_VERSION).strip() or STRIPCHAT_FRONT_VERSION
 
     def _stripchat_login_paths(self) -> tuple[str, ...]:
-        raw = (os.getenv("PSTREAMREC_STRIPCHAT_LOGIN_PATHS") or "").strip()
+        raw = (os.getenv("HXYLIVE_STRIPCHAT_LOGIN_PATHS") or "").strip()
         if not raw:
             return STRIPCHAT_LOGIN_PATHS
         paths = tuple(part.strip() for part in raw.split(",") if part.strip())
@@ -2155,17 +2155,17 @@ class StripchatProvider(YtDlpProvider):
                     try:
                         payload = json.loads(text)
                     except json.JSONDecodeError as exc:
-                        raise ProviderError("Reponse Stripchat JSON invalide") from exc
+                        raise ProviderError("Invalid Stripchat JSON response") from exc
                     if isinstance(payload, dict):
                         payload.setdefault("_http_status", resp.status)
                     return payload
                 if _INTERACTION_RE.search(text):
-                    raise ProviderInteractionRequired("Stripchat demande une verification interactive")
+                    raise ProviderInteractionRequired("Stripchat requires interactive verification")
                 return {"_http_status": resp.status, "_raw": text[:1000]}
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Stripchat API indisponible: {exc}") from exc
+            raise ProviderError(f"Stripchat API unavailable: {exc}") from exc
 
     def _stripchat_login_requires_interaction(self, value: object) -> bool:
         challenge_keys = {
@@ -2350,7 +2350,7 @@ class StripchatProvider(YtDlpProvider):
         if not username or not password:
             return {"success": False, "error": "Username and password are required"}
 
-        timeout = aiohttp.ClientTimeout(total=int(os.getenv("PSTREAMREC_STRIPCHAT_LOGIN_TIMEOUT", "30") or "30"))
+        timeout = aiohttp.ClientTimeout(total=int(os.getenv("HXYLIVE_STRIPCHAT_LOGIN_TIMEOUT", "30") or "30"))
         cookie_jar = aiohttp.CookieJar(unsafe=True)
         async with aiohttp_client_session(timeout=timeout, cookie_jar=cookie_jar) as session:
             seed = await self._stripchat_seed_http_session(session, username)
@@ -2377,7 +2377,7 @@ class StripchatProvider(YtDlpProvider):
                     if self._stripchat_login_requires_interaction(payload):
                         await self._stripchat_save_login_failure(username, "interaction_required")
                         raise ProviderInteractionRequired(
-                            "Stripchat demande un CAPTCHA/2FA; importez une session navigateur verifiee"
+                            "Stripchat requires CAPTCHA/2FA; import a verified browser session"
                         )
 
                     error = self._stripchat_login_error(payload)
@@ -2388,7 +2388,7 @@ class StripchatProvider(YtDlpProvider):
                         if status == 403:
                             await self._stripchat_save_login_failure(username, "interaction_required")
                             raise ProviderInteractionRequired(
-                                "Stripchat refuse le login automatique; importez une session navigateur verifiee"
+                                "Stripchat rejected automatic login; import a verified browser session"
                             )
                         await self._stripchat_save_login_failure(username, "login_failed")
                         return {"success": False, "error": error}
@@ -2442,7 +2442,7 @@ class StripchatProvider(YtDlpProvider):
         if last_error:
             logger.debug("Stripchat HTTP login did not produce a verified session", error=last_error)
         raise ProviderInteractionRequired(
-            "Stripchat demande un CAPTCHA/2FA ou refuse le login automatique; importez une session navigateur verifiee"
+            "Stripchat requires CAPTCHA/2FA or rejected automatic login; import a verified browser session"
         )
 
     async def _stripchat_api_json(
@@ -2455,10 +2455,10 @@ class StripchatProvider(YtDlpProvider):
         referer: Optional[str] = None,
     ) -> object:
         if auth_required and not await self._stripchat_has_session():
-            raise ProviderAuthError("Connexion Stripchat requise")
+            raise ProviderAuthError("Stripchat login required")
         headers = await self._stripchat_api_headers(referer=referer, has_body=body is not None)
         url = f"{STRIPCHAT_API_BASE}{path if path.startswith('/') else '/' + path}"
-        timeout = aiohttp.ClientTimeout(total=int(os.getenv("PSTREAMREC_STRIPCHAT_API_TIMEOUT", "20") or "20"))
+        timeout = aiohttp.ClientTimeout(total=int(os.getenv("HXYLIVE_STRIPCHAT_API_TIMEOUT", "20") or "20"))
         try:
             async with aiohttp_client_session(timeout=timeout) as session:
                 async with session.request(
@@ -2480,16 +2480,16 @@ class StripchatProvider(YtDlpProvider):
                         return {}
                     if not stripped.startswith(("{", "[")):
                         if auth_required and _INTERACTION_RE.search(text):
-                            raise ProviderInteractionRequired("Interaction Stripchat requise")
-                        raise ProviderError("Reponse Stripchat non JSON")
+                            raise ProviderInteractionRequired("Stripchat interaction required")
+                        raise ProviderError("Stripchat response is not JSON")
                     try:
                         return json.loads(text)
                     except json.JSONDecodeError as exc:
-                        raise ProviderError("Reponse Stripchat JSON invalide") from exc
+                        raise ProviderError("Invalid Stripchat JSON response") from exc
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Stripchat API indisponible: {exc}") from exc
+            raise ProviderError(f"Stripchat API unavailable: {exc}") from exc
 
     async def _stripchat_api_headers(
         self,

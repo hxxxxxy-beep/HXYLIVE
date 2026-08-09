@@ -1,5 +1,5 @@
 """
-Tâche de conversion automatique des enregistrements TS -> MP4
+Automatic conversion task for TS -> MP4 recordings
 """
 import asyncio
 import json
@@ -14,7 +14,7 @@ from ..subprocess_utils import communicate_with_timeout as _communicate_with_tim
 from .monitor import get_media_created_at, get_video_duration
 
 
-# Nombre maximal de tentatives de conversion avant skip automatique
+# Maximum conversion attempts before automatic skip
 MAX_CONVERSION_ATTEMPTS = 3
 SHORT_RECORDING_PROBE_BYTES = max(MIN_RECORDING_BYTES, 64 * 1024 * 1024)
 STALE_CONVERSION_TEMP_SECONDS = 10 * 60
@@ -55,7 +55,7 @@ def cleanup_stale_conversion_temps(
             deleted.append(candidate)
         except OSError as exc:
             logger.warning(
-                "Impossible de supprimer le MP4 temporaire abandonné",
+                "Unable to delete abandoned temporary MP4",
                 temp_file=str(candidate),
                 error=str(exc),
             )
@@ -144,24 +144,24 @@ async def convert_ts_to_mp4(
     ffmpeg_path: str = "ffmpeg"
 ) -> tuple[bool, Optional[Path], Optional[int]]:
     """
-    Convertit un fichier TS en MP4 avec compression optimisée
+    Convert a TS file to MP4 with optimized compression
 
     Returns:
         (success, mp4_path, mp4_size)
     """
     if not ts_path.exists():
-        logger.error("Fichier TS introuvable", ts_path=str(ts_path))
+        logger.error("TS file not found", ts_path=str(ts_path))
         return False, None, None
     try:
         ts_size = ts_path.stat().st_size
     except OSError as exc:
-        logger.error("Fichier TS illisible", ts_path=str(ts_path), error=str(exc))
+        logger.error("TS file unreadable", ts_path=str(ts_path), error=str(exc))
         return False, None, None
     if ts_size <= 0:
-        logger.error("Fichier TS vide", ts_path=str(ts_path))
+        logger.error("TS file empty", ts_path=str(ts_path))
         return False, None, None
 
-    # Générer le nom du fichier MP4 si non fourni
+    # Generate the MP4 filename if not provided
     if mp4_path is None:
         mp4_path = ts_path.with_suffix('.mp4')
 
@@ -173,7 +173,7 @@ async def convert_ts_to_mp4(
         f".{mp4_path.stem}.{uuid.uuid4().hex}.tmp{mp4_path.suffix}"
     )
 
-    logger.info("Remux TS->MP4 démarré",
+    logger.info("TS->MP4 remux started",
                ts_file=ts_path.name,
                mp4_file=mp4_path.name)
 
@@ -198,7 +198,7 @@ async def convert_ts_to_mp4(
     ]
 
     try:
-        # Lancer la conversion
+        # Start the conversion
         logger.debug("Commande FFmpeg", command=" ".join(cmd[:8]) + "...")
 
         process = await asyncio.create_subprocess_exec(
@@ -216,7 +216,7 @@ async def convert_ts_to_mp4(
             reduction = ((ts_size - mp4_size) / ts_size) * 100
             temp_mp4_path.replace(mp4_path)
 
-            logger.success("Conversion réussie",
+            logger.success("Conversion succeeded",
                          ts_file=ts_path.name,
                          mp4_file=mp4_path.name,
                          ts_size_mb=f"{ts_size / 1024 / 1024:.1f}",
@@ -231,13 +231,13 @@ async def convert_ts_to_mp4(
                 error_msg = "FFmpeg produced no non-empty MP4 output"
             else:
                 error_msg = stderr.decode('utf-8') if stderr else "Unknown error"
-            logger.error("Erreur conversion FFmpeg",
+            logger.error("FFmpeg conversion error",
                         ts_file=ts_path.name,
                         error=error_msg[:500])
             return False, None, None
 
     except Exception as e:
-        logger.error("Exception conversion",
+        logger.error("Conversion exception",
                     ts_file=ts_path.name,
                     error=str(e),
                     exc_info=True)
@@ -249,7 +249,7 @@ async def convert_ts_to_mp4(
             temp_mp4_path.unlink(missing_ok=True)
         except OSError as e:
             logger.warning(
-                "Impossible de supprimer le MP4 temporaire",
+                "Unable to delete temporary MP4",
                 temp_file=str(temp_mp4_path),
                 error=str(e),
             )
@@ -288,13 +288,13 @@ async def _get_recording_settings(db) -> tuple[bool, bool]:
 
 async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffmpeg_path: str = "ffmpeg"):
     """
-    Tâche qui scanne tous les fichiers .ts et les convertit s'ils ne sont pas en cours d'enregistrement.
+    Task that scans all .ts files and converts them if they are not currently recording.
     Respects auto_convert and keep_ts settings from DB.
     """
-    logger.info("Tâche de conversion automatique démarrée", task="auto-convert")
+    logger.info("Automatic conversion task started", task="auto-convert")
 
-    # SCAN INITIAL : Scanner tous les fichiers TS existants au démarrage
-    logger.info("Scan initial des fichiers TS existants", task="auto-convert")
+    # INITIAL SCAN: scan all existing TS files at startup
+    logger.info("Initial scan of existing TS files", task="auto-convert")
     try:
         records_root = output_dir / "records"
         if records_root.exists():
@@ -304,7 +304,7 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
             )
             if stale_temps:
                 logger.info(
-                    "MP4 temporaires abandonnés supprimés",
+                    "Abandoned temporary MP4s deleted",
                     task="auto-convert",
                     count=len(stale_temps),
                 )
@@ -312,13 +312,13 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                 if user_dir.is_dir():
                     username = user_dir.name
                     for ts_file in user_dir.rglob("*.ts"):
-                        # Vérifier si déjà dans la DB
+                        # Check whether already in the DB
                         recordings = await db.get_recordings(username)
                         existing = next((r for r in recordings if r['filename'] == ts_file.name), None)
 
                         if not existing:
-                            # Ajouter à la DB
-                            logger.info("Indexation fichier existant", username=username, file=ts_file.name)
+                            # Add to the DB
+                            logger.info("Indexing existing file", username=username, file=ts_file.name)
                             recording_id = f"{username}_{ts_file.stem}"
                             await db.add_or_update_recording(
                                 username=username,
@@ -334,9 +334,9 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                                     fallback_timestamp=int(ts_file.stat().st_mtime),
                                 ),
                             )
-        logger.success("Scan initial terminé", task="auto-convert")
+        logger.success("Initial scan finished", task="auto-convert")
     except Exception as e:
-        logger.error("Erreur scan initial", error=str(e), exc_info=True)
+        logger.error("Initial scan error", error=str(e), exc_info=True)
 
     while True:
         try:
@@ -346,12 +346,12 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
             # Read settings from DB each iteration (runtime changeable)
             auto_convert, keep_ts = await _get_recording_settings(db)
 
-            # Scanner TOUS les dossiers users dans /records pour trouver les fichiers .ts
+            # Scan ALL user folders under /records to find .ts files
             records_root = output_dir / "records"
             if not records_root.exists():
                 continue
 
-            # Récupérer les sessions actives pour savoir quels fichiers sont en cours d'enregistrement
+            # Fetch active sessions to know which files are currently recording
             active_sessions = ffmpeg_manager.list_status()
             active_recordings = {}  # {username: recording_filename}
             for session in active_sessions:
@@ -367,7 +367,7 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
             )
             if stale_temps:
                 logger.info(
-                    "MP4 temporaires abandonnés supprimés",
+                    "Abandoned temporary MP4s deleted",
                     task="auto-convert",
                     count=len(stale_temps),
                 )
@@ -380,32 +380,32 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
 
                 username = user_dir.name
 
-                # Charger les recordings UNE seule fois par user (évite N+1 DB calls)
+                # Load recordings ONCE per user (avoids N+1 DB calls)
                 user_recordings = await db.get_recordings(username)
                 recordings_by_filename = {r['filename']: r for r in user_recordings}
 
-                # Scanner TOUS les fichiers .ts dans le dossier de l'utilisateur
+                # Scan ALL .ts files in the user folder
                 for ts_file in user_dir.rglob("*.ts"):
                     ts_path = Path(ts_file)
 
-                    # Vérifier si ce fichier est en cours d'enregistrement
+                    # Check whether this file is currently recording
                     if username in active_recordings and active_recordings[username] == ts_file.name:
-                        logger.debug("Fichier en cours d'enregistrement, skip",
+                        logger.debug("File currently recording, skip",
                                    username=username,
                                    file=ts_file.name)
                         continue
 
-                    # Vérifier si le MP4 existe déjà
+                    # Check whether the MP4 already exists
                     mp4_path = ts_path.with_suffix('.mp4')
                     if mp4_path.exists() and await _is_valid_existing_mp4(mp4_path, ffmpeg_path):
-                        logger.debug("MP4 existe déjà, skip conversion",
+                        logger.debug("MP4 already exists, skip conversion",
                                    username=username,
                                    file=ts_file.name)
 
                         existing = recordings_by_filename.get(ts_file.name)
 
                         if existing and not existing.get('is_converted'):
-                            # Mettre à jour la DB
+                            # Update the DB
                             created_at = await get_media_created_at(
                                 ts_path,
                                 ffmpeg_path,
@@ -424,7 +424,7 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                                 is_converted=True,
                                 created_at=created_at,
                             )
-                            logger.info("DB mise à jour pour MP4 existant",
+                            logger.info("DB updated for existing MP4",
                                       username=username,
                                       file=ts_file.name)
 
@@ -432,28 +432,28 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                         if not keep_ts and ts_path.exists():
                             try:
                                 ts_path.unlink()
-                                logger.success("Fichier TS supprimé (MP4 existe déjà)",
+                                logger.success("TS file deleted (MP4 already exists)",
                                              username=username,
                                              ts_file=ts_file.name,
                                              mp4_file=mp4_path.name)
                             except Exception as e:
-                                logger.error("Erreur suppression TS",
+                                logger.error("Error deleting TS",
                                            ts_file=ts_file.name,
                                            error=str(e))
                         continue
                     elif mp4_path.exists():
                         logger.warning(
-                            "MP4 existant invalide, nouvelle conversion requise",
+                            "Existing MP4 invalid, new conversion required",
                             username=username,
                             ts_file=ts_file.name,
                             mp4_file=mp4_path.name,
                         )
 
-                    # Vérifier si le fichier TS est stable (pas modifié depuis 180s)
+                    # Ensure the TS file is stable (not modified for 180s)
                     last_modified = ts_path.stat().st_mtime
                     if time.time() - last_modified < 180:
-                        # Fichier encore en cours d'écriture
-                        logger.debug("Fichier modifié récemment, attente stabilité",
+                        # File still being written
+                        logger.debug("File modified recently, waiting for stability",
                                    file=ts_path.name,
                                    last_modified_ago=f"{time.time() - last_modified:.0f}s")
                         continue
@@ -475,7 +475,7 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                                 ts_path.unlink()
                             await db.delete_recording(username, ts_file.name)
                             logger.warning(
-                                "Fragment ignoré avant conversion",
+                                "Fragment ignored before conversion",
                                 username=username,
                                 filename=ts_file.name,
                                 duration_seconds=candidate_duration,
@@ -485,7 +485,7 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                             )
                         except Exception as e:
                             logger.error(
-                                "Erreur suppression fragment avant conversion",
+                                "Error deleting fragment before conversion",
                                 username=username,
                                 filename=ts_file.name,
                                 error=str(e),
@@ -515,23 +515,23 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                                 is_converted=False,
                                 created_at=created_at,
                             )
-                            logger.info("TS indexé (auto-convert désactivé)",
+                            logger.info("TS indexed (auto-convert disabled)",
                                       username=username,
                                       filename=ts_file.name)
                         continue
 
-                    # Skip si trop de tentatives ratées pour ce fichier
+                    # Skip if too many failed attempts for this file
                     attempts = (existing or {}).get('conversion_attempts') or 0
                     if attempts >= MAX_CONVERSION_ATTEMPTS:
-                        logger.debug("Conversion skippée (trop d'échecs)",
+                        logger.debug("Conversion skipped (too many failures)",
                                    username=username,
                                    filename=ts_file.name,
                                    attempts=attempts,
                                    task="auto-convert")
                         continue
 
-                    # Le fichier n'est pas en cours d'enregistrement, on peut le convertir
-                    logger.info("Début conversion automatique",
+                    # File is not currently recording, it can be converted
+                    logger.info("Starting automatic conversion",
                               username=username,
                               filename=ts_file.name,
                               attempt=attempts + 1,
@@ -544,20 +544,20 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                     )
 
                     if success and mp4_path_result:
-                        # existing vient déjà du cache recordings_by_filename
+                        # existing already comes from the recordings_by_filename cache
                         recording_id = existing.get('recording_id') if existing else f"{username}_{ts_file.stem}"
 
-                        # Reset compteur d'échec car la conversion a réussi
+                        # Reset failure counter because conversion succeeded
                         if (existing or {}).get('conversion_attempts'):
                             await db.reset_conversion_failure(recording_id)
 
-                        # Recalculer la durée sur le fichier MP4 maintenant qu'il est stable
+                        # Recompute duration on the MP4 file now that it is stable
                         final_duration = await get_video_duration(mp4_path_result, ffmpeg_path)
 
-                        # Utiliser la durée recalculée ou celle existante si le calcul échoue
+                        # Use the recomputed duration or the existing one if calculation fails
                         if final_duration > 0:
                             duration_to_use = final_duration
-                            logger.info("Durée recalculée après conversion",
+                            logger.info("Duration recomputed after conversion",
                                       username=username,
                                       filename=ts_file.name,
                                       duration=final_duration)
@@ -588,26 +588,26 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                             try:
                                 if ts_path.exists():
                                     ts_path.unlink()
-                                    logger.success("Fichier TS supprimé après conversion",
+                                    logger.success("TS file deleted after conversion",
                                                  username=username,
                                                  ts_file=ts_file.name,
                                                  mp4_file=mp4_path_result.name)
                             except Exception as e:
-                                logger.error("Erreur suppression TS",
+                                logger.error("Error deleting TS",
                                            ts_file=ts_file.name,
                                            error=str(e))
                         else:
-                            logger.info("Fichier TS conservé (keep_ts activé)",
+                            logger.info("TS file kept (keep_ts enabled)",
                                       username=username,
                                       ts_file=ts_file.name)
 
-                        logger.success("Enregistrement converti et indexé",
+                        logger.success("Recording converted and indexed",
                                      username=username,
                                      filename=ts_file.name,
                                      mp4_file=mp4_path_result.name)
                     else:
-                        # Tracker l'échec en DB pour éviter les retries infinis et informer l'UI
-                        # S'assurer que l'enregistrement existe d'abord
+                        # Track the failure in DB to avoid infinite retries and inform the UI
+                        # Ensure the recording exists first
                         if not existing:
                             duration = await get_video_duration(ts_path, ffmpeg_path)
                             recording_id = f"{username}_{ts_file.stem}"
@@ -628,17 +628,17 @@ async def auto_convert_recordings_task(db, output_dir: Path, ffmpeg_manager, ffm
                             )
                         error_msg = f"FFmpeg conversion failed (attempt {attempts + 1}/{MAX_CONVERSION_ATTEMPTS})"
                         await db.mark_conversion_failed(username, ts_file.name, error_msg)
-                        logger.error("Échec conversion",
+                        logger.error("Conversion failed",
                                    username=username,
                                    filename=ts_file.name,
                                    attempt=attempts + 1,
                                    max_attempts=MAX_CONVERSION_ATTEMPTS)
 
-                    # Petit yield entre conversions; le remux est quasi-instantané
+                    # Small yield between conversions; remux is nearly instant
                     await asyncio.sleep(1)
 
         except Exception as e:
-            logger.error("Erreur dans tâche de conversion",
+            logger.error("Error in conversion task",
                         error=str(e),
                         exc_info=True)
             await asyncio.sleep(60)

@@ -523,11 +523,11 @@ async def _build_provider_summaries(followed: list[dict], any_logged_in: bool) -
 
 @router.get("/following")
 async def get_following():
-    """Returns all followed models (Chaturbate + CAM4 + autres plugins) avec
-    statut online et flag isTracked."""
+    """Returns all followed models across active providers with online
+    status and isTracked flag."""
     try:
         # Login status par source (fallback legacy si le registre provider
-        # n'est pas encore initialisé).
+        # is not initialized yet).
         per_source_logins: dict = {}
         any_logged_in = False
         if _auth_service and not _provider_registry:
@@ -596,7 +596,7 @@ async def get_following():
             # Surface cached room_status for UI (distinguer Private d'Offline)
             if tracked and tracked.get("room_status"):
                 model["room_status"] = tracked.get("room_status")
-            # Priorité: source_type sur la ligne followed > modèle tracké > chaturbate
+            # Priority: source_type on the followed row > tracked model > chaturbate
             model["source_type"] = (
                 model.get("source_type")
                 or (tracked.get("source_type") if tracked else None)
@@ -639,9 +639,9 @@ async def get_following():
             "message": None,
         }
     except Exception as e:
-        # Ne jamais renvoyer 500 sur cet endpoint : le front s'affiche mieux avec une
-        # liste vide (qui sera re-peuplée au prochain fetch) qu'avec une erreur réseau
-        logger.error("Erreur /api/following", error=str(e), exc_info=True)
+        # Never return 500 on this endpoint: the front-end displays better with an
+        # empty list (refilled on next fetch) than with a network error
+        logger.error("Error /api/following", error=str(e), exc_info=True)
         return {
             "models": [],
             "online": [],
@@ -732,7 +732,7 @@ async def sync_following():
         raise HTTPException(status_code=503, detail="Chaturbate API not initialized")
     status = _auth_service.get_status()
     if not status.get("isLoggedIn"):
-        raise HTTPException(status_code=401, detail="Chaturbate session absente")
+        raise HTTPException(status_code=401, detail="Chaturbate session missing")
     try:
         items = await _chaturbate_api.get_followed_models()
     except Exception as exc:
@@ -778,7 +778,7 @@ async def track_followed_model(
 
     requested_source = (source_type or source or "").strip().lower() or None
     if requested_source and _provider_registry and requested_source not in (_registered_source_types() or set()):
-        raise HTTPException(status_code=404, detail=f"Source '{requested_source}' non disponible")
+        raise HTTPException(status_code=404, detail=f"Source '{requested_source}' unavailable")
 
     # Check if already tracked
     existing = await _db.get_model(username, source_type=requested_source)

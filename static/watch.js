@@ -139,9 +139,9 @@ async function initWatch() {
     return;
   }
 
-  // Lit le source_type depuis l'URL (?source=twitch|chaturbate) pour les modèles qui ne
-  // sont pas encore dans le cache SQLite — évite le fallback par défaut vers
-  // Chaturbate qui marque les CAM4 comme Offline.
+  // Read source_type from the URL (?source=twitch|chaturbate) for models that are not
+  // yet in the SQLite cache — avoids a bad Chaturbate fallback
+  // for channels on other platforms.
   try {
     currentSourceType = new URLSearchParams(window.location.search).get('source') || '';
   } catch (e) {
@@ -973,7 +973,7 @@ async function retryStream() {
 // Follow status
 // ============================================
 function followBasePath() {
-  // Route vers le bon service selon la plateforme.
+  // Route to the correct service based on the platform.
   return '/api/providers/' + encodeURIComponent(currentSourceType || 'chaturbate');
 }
 

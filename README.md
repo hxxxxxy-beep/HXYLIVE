@@ -5,8 +5,7 @@ Self-hosted live-stream discovery, recording, playback, and media management.
 - **VPS:** FastAPI app, recorder, media library, Nginx, Docker Compose, persistent `/data`
 - **Mac:** localhost Helper that scans a video folder and opens short-lived VPS download links in Chrome
 
-**New machine / new AI:** open [`docs/AI_REDEPLOY.md`](docs/AI_REDEPLOY.md) (or paste the repo URL and that path).  
-**Agent rules:** [`AGENTS.md`](AGENTS.md)  
+**New Mac / new AI:** paste only `https://github.com/hxxxxxy-beep/HXYLIVE` — the agent reads [`docs/AI_REDEPLOY.md`](docs/AI_REDEPLOY.md) + [`AGENTS.md`](AGENTS.md), asks for secrets once, then clones, configures, and deploys.  
 **Secrets checklist:** [`docs/SECRETS_OFFLINE_CHECKLIST.md`](docs/SECRETS_OFFLINE_CHECKLIST.md)
 
 Runtime databases, recordings, credentials, cookies, passwords, and machine paths are not stored in Git.
@@ -37,7 +36,7 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Features
 
 - Discover and filter live channels (Twitch, Bilibili, Chaturbate, Stripchat)
-- Manual and automatic recording (FFmpeg + browser-assisted providers)
+- Manual and automatic recording (FFmpeg + provider stream resolvers)
 - Media library with profiles, device filters (VPS / Mac), live status (Live / Private / Locked / Offline), last-live timestamps
 - Mac folder sync and Chrome download dispatch
 - Password protection and system status

@@ -67,7 +67,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Effet de particules subtil en arrière-plan */
+/* Subtle particle effect in the background */
 body::before {
   content: '';
   position: fixed;
@@ -4574,7 +4574,7 @@ body.watch-recording-open {
   line-height: 1.35;
 }
 
-/* Cœur follow/unfollow sur les cartes Discover */
+/* Heart follow/unfollow on Discover cards */
 .discover-follow-heart {
   position: static;
   margin-left: 0;

@@ -3,7 +3,7 @@ HTTP helpers for outbound provider requests.
 
 aiohttp does not use proxy environment variables unless trust_env=True, and it
 does not support SOCKS proxies without a connector. Keep that behavior in one
-place so Chaturbate/CAM4 calls behave consistently.
+place so provider calls behave consistently.
 """
 
 import os
@@ -21,7 +21,6 @@ except ImportError:  # pragma: no cover - only hit when optional dep is missing
 
 _CUSTOM_PROXY_ENV_NAMES = (
     "HXYLIVE_PROXY_URL",
-    "STREAMREC_PROXY_URL",
     "PROXY_URL",
 )
 
@@ -76,14 +75,6 @@ def aiohttp_request_kwargs() -> Dict[str, Any]:
     scheme = _proxy_scheme(proxy_url)
     if proxy_url and scheme in _HTTP_PROXY_SCHEMES:
         return {"proxy": proxy_url}
-    return {}
-
-
-def requests_proxy_kwargs() -> Dict[str, Any]:
-    """Per-request kwargs for the few synchronous requests fallback calls."""
-    proxy_url = get_outbound_proxy_url()
-    if proxy_url:
-        return {"proxies": {"http": proxy_url, "https": proxy_url}}
     return {}
 
 

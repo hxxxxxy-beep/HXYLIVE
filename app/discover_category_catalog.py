@@ -59,7 +59,6 @@ SOURCE_MODE_UNSUPPORTED = "unsupported"
 
 RELIABILITY_HIGH = "high"
 RELIABILITY_MEDIUM = "medium"
-RELIABILITY_LOW = "low"
 RELIABILITY_NONE = "none"
 
 # Known discover sources (must stay aligned with provider registry).
@@ -189,10 +188,6 @@ def canonicalize_category_value(
         if hit:
             return hit
     return None
-
-
-def list_synonym_tables_for_tests() -> Sequence[Dict[str, Any]]:
-    return _CONTEXTUAL_SYNONYM_TABLES
 
 
 # Per-source gender specs. ``available`` gates the formal categories list.
@@ -536,10 +531,6 @@ def _unsupported_gender_item(canonical: str, reason_code: str) -> Dict[str, Any]
         unsupported_reason_code=reason_code,
         evidence_note=f"Capability layer marks unsupported: {reason_code}",
     )
-
-
-def is_known_source(source: str) -> bool:
-    return (source or "").strip().lower() in KNOWN_SOURCES
 
 
 def twitch_content_category_item(game_id: str, name: str) -> Dict[str, Any]:

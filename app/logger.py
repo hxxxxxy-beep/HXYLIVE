@@ -1,6 +1,6 @@
 """
-Système de logging centralisé pour HXYLIVE
-Fournit des logs détaillés, structurés et colorisés pour faciliter le debugging
+Centralized logging system for HXYLIVE
+Provides detailed, structured, colorized logs for easier debugging
 """
 
 import logging
@@ -41,7 +41,7 @@ class Colors:
 
 
 class DetailedFormatter(logging.Formatter):
-    """Formatter personnalisé avec couleurs et emojis"""
+    """Custom formatter with colors and emojis"""
 
     EMOJI_MAP = {
         'DEBUG': '🔍',
@@ -63,24 +63,24 @@ class DetailedFormatter(logging.Formatter):
         # Timestamp
         timestamp = datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
-        # Emoji et couleur selon le niveau
+        # Emoji and color by level
         emoji = self.EMOJI_MAP.get(record.levelname, '•')
         color = self.COLOR_MAP.get(record.levelname, Colors.RESET)
 
-        # Nom du module
+        # Module name
         module = record.name.split('.')[-1]
 
-        # Message de base
+        # Base message
         message = record.getMessage()
 
-        # Construire le log
+        # Build the log line
         log_line = f"{Colors.BRIGHT_BLUE}{timestamp}{Colors.RESET} {emoji} {color}[{record.levelname:8}]{Colors.RESET} {Colors.MAGENTA}{module:15}{Colors.RESET} │ {message}"
 
-        # Ajouter les infos supplémentaires si disponibles
+        # Add extra info when available
         if hasattr(record, 'extra_data') and record.extra_data:
             log_line += f"\n{Colors.CYAN}{'  ' * 10}└─ {json.dumps(record.extra_data, indent=2, ensure_ascii=False)}{Colors.RESET}"
 
-        # Ajouter l'exception si présente
+        # Add exception when present
         if record.exc_info:
             log_line += f"\n{self.formatException(record.exc_info)}"
 
@@ -88,7 +88,7 @@ class DetailedFormatter(logging.Formatter):
 
 
 class MemoryLogHandler(logging.Handler):
-    """Handler qui stocke les logs en mémoire dans un deque circulaire"""
+    """Handler that stores logs in memory in a circular deque"""
 
     def __init__(self, max_entries: int = 2000):
         super().__init__()
@@ -114,7 +114,7 @@ class MemoryLogHandler(logging.Handler):
         self.logs.append(entry)
 
     def get_logs(self, level: Optional[str] = None, limit: int = 200, offset: int = 0) -> List[Dict]:
-        """Récupère les logs filtrés"""
+        """Return filtered logs"""
         logs = list(self.logs)
         if level:
             level_upper = level.upper()
@@ -130,7 +130,7 @@ class MemoryLogHandler(logging.Handler):
 
 
 class AppLogger:
-    """Logger principal de l'application"""
+    """Main application logger"""
 
     _instance = None
     _initialized = False
@@ -144,133 +144,133 @@ class AppLogger:
         if self._initialized:
             return
 
-        # Configuration du logger principal
+        # Main logger configuration
         self.logger = logging.getLogger('hxylive')
         self.logger.setLevel(logging.DEBUG)
         self.logger.propagate = False
 
-        # Handler console avec couleurs
+        # Console handler with colors
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.DEBUG)
         console_handler.setFormatter(DetailedFormatter())
 
-        # Handler mémoire pour l'API
+        # In-memory handler for the API
         self.memory_handler = MemoryLogHandler(max_entries=2000)
         self.memory_handler.setLevel(logging.DEBUG)
 
-        # Nettoyer les handlers existants
+        # Clear existing handlers
         self.logger.handlers.clear()
         self.logger.addHandler(console_handler)
         self.logger.addHandler(self.memory_handler)
 
         self._initialized = True
 
-        # Log de démarrage
+        # Startup log
         self.startup()
 
     def startup(self):
-        """Log de démarrage de l'application"""
+        """Application startup log"""
         self.logger.info("=" * 80)
-        self.logger.info(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}HXYLIVE - Démarrage de l'application{Colors.RESET}")
+        self.logger.info(f"{Colors.BRIGHT_CYAN}{Colors.BOLD}HXYLIVE - Application startup{Colors.RESET}")
         self.logger.info("=" * 80)
 
     def get_logger(self, name: str):
-        """Obtenir un logger pour un module spécifique"""
+        """Get a logger for a specific module"""
         return logging.getLogger(f'hxylive.{name}')
 
     def debug(self, message: str, **extra):
-        """Log DEBUG avec données supplémentaires"""
+        """DEBUG log with extra data"""
         self.logger.debug(message, extra={'extra_data': extra} if extra else {})
 
     def info(self, message: str, **extra):
-        """Log INFO avec données supplémentaires"""
+        """INFO log with extra data"""
         self.logger.info(message, extra={'extra_data': extra} if extra else {})
 
     def warning(self, message: str, **extra):
-        """Log WARNING avec données supplémentaires"""
+        """WARNING log with extra data"""
         self.logger.warning(message, extra={'extra_data': extra} if extra else {})
 
     def error(self, message: str, exc_info: bool = False, **extra):
-        """Log ERROR avec données supplémentaires"""
+        """ERROR log with extra data"""
         self.logger.error(message, exc_info=exc_info, extra={'extra_data': extra} if extra else {})
 
     def critical(self, message: str, exc_info: bool = False, **extra):
-        """Log CRITICAL avec données supplémentaires"""
+        """CRITICAL log with extra data"""
         self.logger.critical(message, exc_info=exc_info, extra={'extra_data': extra} if extra else {})
 
     def section(self, title: str, char: str = '='):
-        """Afficher une section"""
+        """Display a section"""
         line = char * 80
         self.logger.info(line)
         self.logger.info(f"{Colors.BOLD}{title}{Colors.RESET}")
         self.logger.info(line)
 
     def subsection(self, title: str):
-        """Afficher une sous-section"""
+        """Display a subsection"""
         self.logger.info(f"\n{Colors.BRIGHT_CYAN}{'─' * 40}{Colors.RESET}")
         self.logger.info(f"{Colors.BRIGHT_CYAN}{title}{Colors.RESET}")
         self.logger.info(f"{Colors.BRIGHT_CYAN}{'─' * 40}{Colors.RESET}")
 
     def success(self, message: str, **extra):
-        """Log de succès (vert)"""
+        """Success log (green)"""
         self.logger.info(f"{Colors.BRIGHT_GREEN}{message}{Colors.RESET}", extra={'extra_data': extra} if extra else {})
 
     def failure(self, message: str, **extra):
-        """Log d'échec (rouge)"""
+        """Failure log (red)"""
         self.logger.error(f"{Colors.BRIGHT_RED}{message}{Colors.RESET}", extra={'extra_data': extra} if extra else {})
 
     def progress(self, message: str, **extra):
-        """Log de progression"""
+        """Progress log"""
         self.logger.info(f"{Colors.BRIGHT_YELLOW}{message}{Colors.RESET}", extra={'extra_data': extra} if extra else {})
 
     def api_request(self, method: str, path: str, **extra):
-        """Log d'une requête API"""
+        """API request log"""
         self.logger.info(f"{Colors.BRIGHT_BLUE}{method:6} {path}{Colors.RESET}", extra={'extra_data': extra} if extra else {})
 
     def api_response(self, status: int, path: str, duration_ms: Optional[float] = None, **extra):
-        """Log d'une réponse API"""
+        """API response log"""
         color = Colors.BRIGHT_GREEN if status < 400 else Colors.BRIGHT_RED
         duration_str = f" ({duration_ms:.2f}ms)" if duration_ms else ""
         self.logger.info(f"{color}[{status}] {path}{duration_str}{Colors.RESET}", extra={'extra_data': extra} if extra else {})
 
     def ffmpeg_start(self, session_id: str, person: str, url: str):
-        """Log démarrage FFmpeg"""
-        self.section(f"DÉMARRAGE ENREGISTREMENT - {person}")
+        """FFmpeg start log"""
+        self.section(f"START RECORDING - {person}")
         self.logger.info(f"Session ID: {session_id}")
-        self.logger.info(f"Personne: {person}")
+        self.logger.info(f"Person: {person}")
         self.logger.info(f"URL: {url[:80]}...")
 
     def ffmpeg_stop(self, session_id: str, person: str, duration: Optional[float] = None):
-        """Log arrêt FFmpeg"""
+        """FFmpeg stop log"""
         duration_str = f" ({duration:.1f}s)" if duration else ""
-        self.logger.info(f"ARRÊT ENREGISTREMENT - {person}{duration_str}")
+        self.logger.info(f"STOP RECORDING - {person}{duration_str}")
         self.logger.info(f"Session ID: {session_id}")
 
     def ffmpeg_error(self, session_id: str, error: str):
-        """Log erreur FFmpeg"""
-        self.logger.error(f"ERREUR FFMPEG - Session {session_id}")
+        """Log error FFmpeg"""
+        self.logger.error(f"FFMPEG ERROR - Session {session_id}")
         self.logger.error(f"   {error}")
 
     def file_operation(self, operation: str, path: str, size: Optional[int] = None, **extra):
-        """Log opération fichier"""
+        """File operation log"""
         size_str = f" ({size / 1024 / 1024:.2f} MB)" if size else ""
         self.logger.info(f"{operation}: {path}{size_str}", extra={'extra_data': extra} if extra else {})
 
     def git_operation(self, operation: str, **extra):
-        """Log opération Git"""
+        """Git operation log"""
         self.logger.info(f"GIT: {operation}", extra={'extra_data': extra} if extra else {})
 
     def background_task(self, task_name: str, action: str, **extra):
-        """Log tâche en arrière-plan"""
+        """Background task log"""
         self.logger.info(f"BACKGROUND [{task_name}]: {action}", extra={'extra_data': extra} if extra else {})
 
     def model_operation(self, operation: str, username: str, **extra):
-        """Log opération sur un modèle"""
+        """Model operation log"""
         self.logger.info(f"MODEL [{operation}]: {username}", extra={'extra_data': extra} if extra else {})
 
 
 # Instance globale
 logger = AppLogger()
 
-# Export du logger
+# Export the logger
 __all__ = ['logger', 'Colors']

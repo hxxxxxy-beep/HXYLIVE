@@ -319,30 +319,6 @@
     return gate.normalized;
   }
 
-  // Back-compat name used by older tests / callers.
-  function selectDefaultGenderParam(formalItems, preferredGender) {
-    var selected = selectDefaultCategory(formalItems, preferredGender);
-    var applied = applyCategoryRequest({
-      selectedCategoryKey: selected.canonical_key,
-      selectedCategoryType: selected.category_type,
-      selectedCategoryRequestParam: selected.request_param,
-      selectedCategoryRequestValue: selected.request_value
-    });
-    return applied.ok ? (applied.gender || '') : '';
-  }
-
-  function categoryToGenderParam(canonical) {
-    // Legacy helper — only valid for gender/all keys. Do not use for content/language.
-    var key = String(canonical || '').trim().toLowerCase();
-    if (!key || key === 'all') return '';
-    return key;
-  }
-
-  function genderParamToCanonical(gender) {
-    var key = String(gender || '').trim().toLowerCase();
-    return key || 'all';
-  }
-
   function safeAllFallbackItems() {
     return [{
       canonical_key: 'all',
@@ -375,9 +351,6 @@
     evaluateCategoryRequestSupport: evaluateCategoryRequestSupport,
     applyCategoryRequest: applyCategoryRequest,
     selectDefaultCategory: selectDefaultCategory,
-    selectDefaultGenderParam: selectDefaultGenderParam,
-    categoryToGenderParam: categoryToGenderParam,
-    genderParamToCanonical: genderParamToCanonical,
     formalHasCanonical: formalHasCanonical,
     findFormalByKey: findFormalByKey,
     findFormalByGenderValue: findFormalByGenderValue,

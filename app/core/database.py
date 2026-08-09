@@ -1,5 +1,5 @@
 """
-Gestion de la base de données SQLite pour le cache des modèles
+SQLite database management for the model cache
 """
 import aiosqlite
 import json
@@ -10,7 +10,7 @@ from datetime import datetime
 from ..logger import logger
 
 class Database:
-    # Timeout par défaut (ms) pour l'attente d'un verrou SQLite avant "database is locked"
+    # Default timeout (ms) waiting for a SQLite lock before "database is locked"
     BUSY_TIMEOUT_MS = 10000
 
     def __init__(self, db_path: Path):
@@ -28,34 +28,34 @@ class Database:
         return f"{model_folder}/videos/record"
 
     def _connect(self):
-        """Ouvre une connexion aiosqlite avec timeout de verrou.
+        """Open an aiosqlite connection with a lock timeout.
 
-        Retourne un context manager async. Le timeout Python évite les erreurs
-        immédiates "database is locked" quand plusieurs tâches écrivent/lisent
-        en parallèle (monitoring, sync, conversion, endpoints API).
+        Returns an async context manager. The Python timeout avoids immediate
+        "database is locked" errors when several tasks write/read
+        in parallel (monitoring, sync, conversion, API endpoints).
         """
-        # timeout (s): délai max d'attente d'un verrou avant OperationalError
+        # timeout (s): max wait for a lock before OperationalError
         return aiosqlite.connect(self.db_path, timeout=self.BUSY_TIMEOUT_MS / 1000)
 
     async def _apply_pragmas(self, db):
-        """Active WAL + busy_timeout sur une connexion."""
+        """Enable WAL + busy_timeout on a connection."""
         await db.execute(f"PRAGMA busy_timeout = {self.BUSY_TIMEOUT_MS}")
 
     async def initialize(self):
-        """Initialise la base de données et crée les tables"""
+        """Initialize the database and create tables"""
         if self._initialized:
             return
 
         async with self._connect() as db:
-            # Activer WAL : lectures non bloquées par les écritures concurrentes
-            # (résout les 500 sur /api/models et /api/following sous charge)
+            # Enable WAL: reads are not blocked by concurrent writes
+            # (fixes 500s on /api/models and /api/following under load)
             try:
                 await db.execute("PRAGMA journal_mode=WAL")
                 await db.execute("PRAGMA synchronous=NORMAL")
             except Exception as e:
-                logger.warning("Impossible d'activer WAL", error=str(e))
+                logger.warning("Unable to enable WAL", error=str(e))
             await self._apply_pragmas(db)
-            # Table pour les modèles et leur statut
+            # Table for models and their status
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS models (
                     username TEXT NOT NULL,
@@ -78,8 +78,8 @@ class Database:
                 )
             """)
 
-            # Fiches locales enrichies pour la médiathèque. Ces informations
-            # restent séparées des réglages de stream dans models.
+            # Enriched local cards for the media library. This information
+            # stays separate from stream settings in models.
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS media_profiles (
                     username TEXT PRIMARY KEY,
@@ -124,7 +124,7 @@ class Database:
                 )
             """)
 
-            # Table pour les rediffusions
+            # Table for recordings
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS recordings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,7 +151,7 @@ class Database:
                 )
             """)
 
-            # Table pour l'authentification Chaturbate
+            # Table for Chaturbate authentication
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS chaturbate_auth (
                     id INTEGER PRIMARY KEY DEFAULT 1,
@@ -167,7 +167,7 @@ class Database:
                 )
             """)
 
-            # Table pour les modèles suivis sur Chaturbate
+            # Table for Chaturbate followed models
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS followed_models (
                     username TEXT NOT NULL,
@@ -184,7 +184,7 @@ class Database:
                 )
             """)
 
-            # Table pour les paramètres (tags blacklistés, etc.)
+            # Table for settings (blacklisted tags, etc.)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
@@ -193,7 +193,7 @@ class Database:
                 )
             """)
 
-            # Table pour la position de lecture (reprise)
+            # Table for playback position (resume)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS playback_positions (
                     recording_id TEXT PRIMARY KEY,
@@ -205,7 +205,7 @@ class Database:
                 )
             """)
 
-            # Table pour les plugins installés (sources de streaming tierces)
+            # Table for installed plugins (third-party streaming sources)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS plugins (
                     id TEXT PRIMARY KEY,
@@ -222,7 +222,7 @@ class Database:
                 )
             """)
 
-            # Sessions generiques par provider. Credentials are local-only and
+            # Generic sessions per provider. Credentials are local-only and
             # allow reconnect retries after provider sessions expire.
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS provider_sessions (
@@ -240,7 +240,7 @@ class Database:
                 )
             """)
 
-            # Index pour les requêtes fréquentes
+            # Indexes for frequent queries
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_models_online
                 ON models(is_online, username)
@@ -271,7 +271,7 @@ class Database:
                 ON media_profile_sources(auto_record, source_type, channel_username)
             """)
 
-            # Migrations idempotentes pour schémas existants
+            # Idempotent migrations for existing schemas
             await self._migrate_schema(db)
             await self._migrate_provider_identity_keys(db)
             await self._migrate_explicit_recording_opt_in(db)
@@ -279,7 +279,7 @@ class Database:
             await db.commit()
 
         self._initialized = True
-        logger.info("Base de données initialisée", db_path=str(self.db_path))
+        logger.info("Database initialized", db_path=str(self.db_path))
 
     async def _migrate_explicit_recording_opt_in(self, db):
         """Suspend legacy automatic recording once; users must opt in explicitly."""
@@ -305,7 +305,7 @@ class Database:
         )
 
     async def _migrate_schema(self, db):
-        """Ajoute les colonnes manquantes sur les DB existantes (migrations légères)."""
+        """Add missing columns on existing DBs (lightweight migrations)."""
         migrations = [
             ("recordings", "conversion_attempts", "INTEGER DEFAULT 0"),
             ("recordings", "conversion_error", "TEXT"),
@@ -337,9 +337,9 @@ class Database:
         for table, column, ddl in migrations:
             try:
                 await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
-                logger.info("Migration: colonne ajoutée", table=table, column=column)
+                logger.info("Migration: column added", table=table, column=column)
             except Exception:
-                # La colonne existe déjà - SQLite lève "duplicate column"
+                # Column already exists - SQLite raises "duplicate column"
                 pass
 
     async def _migrate_provider_identity_keys(self, db):
@@ -447,16 +447,16 @@ class Database:
         try:
             if await table_pk_columns("models") != ["username", "source_type"]:
                 await rebuild_models()
-                logger.info("Migration: models utilise username+source_type")
+                logger.info("Migration: models uses username+source_type")
         except Exception as exc:
-            logger.warning("Migration provider-aware models échouée", error=str(exc))
+            logger.warning("Migration provider-aware models failed", error=str(exc))
 
         try:
             if await table_pk_columns("followed_models") != ["username", "source_type"]:
                 await rebuild_followed()
-                logger.info("Migration: followed_models utilise username+source_type")
+                logger.info("Migration: followed_models uses username+source_type")
         except Exception as exc:
-            logger.warning("Migration provider-aware followed_models échouée", error=str(exc))
+            logger.warning("Migration provider-aware followed_models failed", error=str(exc))
 
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_models_online
@@ -481,7 +481,7 @@ class Database:
         record_path: Optional[str] = None,
         source_type: Optional[str] = None,
     ):
-        """Ajoute ou met à jour un modèle"""
+        """Add or update a model"""
         await self.initialize()
 
         now = int(datetime.now().timestamp())
@@ -508,7 +508,7 @@ class Database:
             ))
             await db.commit()
 
-        logger.debug("Modèle ajouté/mis à jour", username=username, source_type=source_type)
+        logger.debug("Model added/updated", username=username, source_type=source_type)
 
     async def reconcile_model_sources_from_followed(self) -> int:
         """Repair only genuinely source-less legacy rows.
@@ -555,7 +555,7 @@ class Database:
         room_status: Optional[str] = None,
         source_type: Optional[str] = None,
     ):
-        """Met à jour le statut d'un modèle"""
+        """Update a model's status"""
         await self.initialize()
 
         now = int(datetime.now().timestamp())
@@ -602,7 +602,7 @@ class Database:
     async def get_model(
         self, username: str, source_type: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Récupère les informations d'un modèle"""
+        """Fetch information for a model"""
         await self.initialize()
 
         async with self._connect() as db:
@@ -629,7 +629,7 @@ class Database:
             return None
 
     async def get_all_models(self) -> List[Dict[str, Any]]:
-        """Récupère tous les modèles"""
+        """Fetch all models"""
         await self.initialize()
 
         async with self._connect() as db:
@@ -641,7 +641,7 @@ class Database:
             return [dict(row) for row in rows]
 
     async def get_models_for_auto_record(self) -> List[Dict[str, Any]]:
-        """Récupère les modèles avec auto-record activé"""
+        """Fetch models with auto-record enabled"""
         await self.initialize()
 
         async with self._connect() as db:
@@ -653,7 +653,7 @@ class Database:
             return [dict(row) for row in rows]
 
     async def delete_model(self, username: str, source_type: Optional[str] = None):
-        """Supprime un modèle"""
+        """Delete a model"""
         await self.initialize()
 
         async with self._connect() as db:
@@ -666,7 +666,7 @@ class Database:
                 await db.execute("DELETE FROM models WHERE username = ?", (username,))
             await db.commit()
 
-        logger.info("Modèle supprimé", username=username, source_type=source_type)
+        logger.info("Model deleted", username=username, source_type=source_type)
 
     @staticmethod
     def _json_list(value: Any) -> str:
@@ -843,7 +843,7 @@ class Database:
         return stamp
 
     async def get_media_profile(self, username: str) -> Optional[Dict[str, Any]]:
-        """Récupère la fiche locale d'un profil média."""
+        """Fetch the local card for a media profile."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -856,7 +856,7 @@ class Database:
             return self._format_media_profile_row(dict(row)) if row else None
 
     async def get_all_media_profiles(self) -> List[Dict[str, Any]]:
-        """Récupère toutes les fiches locales média."""
+        """Fetch all local media cards."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -866,7 +866,7 @@ class Database:
             return [self._format_media_profile_row(dict(row)) for row in rows]
 
     async def upsert_media_profile(self, username: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Crée ou met à jour les informations enrichies d'un profil média."""
+        """Create or update enriched info for a media profile."""
         await self.initialize()
 
         now = int(datetime.now().timestamp())
@@ -1013,7 +1013,7 @@ class Database:
             return True
 
     async def get_media_profile_sources(self, profile_username: str) -> List[Dict[str, Any]]:
-        """Liste les sources d'enregistrement liées à un profil média."""
+        """List recording sources linked to a media profile."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1030,7 +1030,7 @@ class Database:
             return [self._format_media_profile_source_row(dict(row)) for row in rows]
 
     async def get_all_media_profile_sources(self) -> List[Dict[str, Any]]:
-        """Liste toutes les sources d'enregistrement Media."""
+        """List all Media recording sources."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1045,7 +1045,7 @@ class Database:
             return [self._format_media_profile_source_row(dict(row)) for row in rows]
 
     async def get_media_profile_sources_for_auto_record(self) -> List[Dict[str, Any]]:
-        """Liste les sources Media dont l'enregistrement automatique est actif."""
+        """List Media sources with automatic recording enabled."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1071,7 +1071,7 @@ class Database:
         retention_days: int = 30,
         record_path: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Crée ou met à jour une source de stream pour un profil média."""
+        """Create or update a stream source for a media profile."""
         await self.initialize()
 
         now = int(datetime.now().timestamp())
@@ -1131,7 +1131,7 @@ class Database:
         profile_username: str,
         sources: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
-        """Remplace toutes les sources d'un profil média."""
+        """Replace all sources for a media profile."""
         await self.initialize()
 
         now = int(datetime.now().timestamp())
@@ -1172,7 +1172,7 @@ class Database:
         profile_username: str,
         auto_record: bool,
     ) -> List[Dict[str, Any]]:
-        """Active ou suspend l'enregistrement pour toutes les sources d'un profil."""
+        """Enable or suspend recording for all sources of a profile."""
         await self.initialize()
 
         now = int(datetime.now().timestamp())
@@ -1190,7 +1190,7 @@ class Database:
         return await self.get_media_profile_sources(profile_username)
 
     async def delete_media_profile_sources(self, profile_username: str) -> int:
-        """Supprime les sources de stream liées à un profil média."""
+        """Delete stream sources linked to a media profile."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1202,7 +1202,7 @@ class Database:
             return cursor.rowcount or 0
 
     async def delete_media_profile(self, username: str) -> None:
-        """Supprime la fiche locale d'un profil média."""
+        """Delete the local card for a media profile."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1211,7 +1211,7 @@ class Database:
             await db.commit()
 
     async def delete_recordings_for_username(self, username: str) -> int:
-        """Supprime tous les enregistrements DB associés à un profil."""
+        """Delete all DB recordings associated with a profile."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1255,7 +1255,7 @@ class Database:
         created_at: Optional[int] = None,
         replace_media_paths: bool = False,
     ):
-        """Ajoute ou met à jour un enregistrement"""
+        """Add or update a recording"""
         await self.initialize()
 
         now = int(datetime.now().timestamp())
@@ -1264,7 +1264,7 @@ class Database:
         media_kind = (media_kind or "recording").strip().lower() or "recording"
         protected_value = 1 if protected_from_retention else 0
 
-        # Générer recording_id si non fourni
+        # Generate recording_id if not provided
         if not recording_id:
             recording_id = f"{username}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
@@ -1312,7 +1312,7 @@ class Database:
             await db.commit()
 
     async def get_recordings(self, username: str) -> List[Dict[str, Any]]:
-        """Récupère les enregistrements d'un modèle"""
+        """Fetch recordings for a model"""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1329,7 +1329,7 @@ class Database:
             return [dict(row) for row in rows]
 
     async def get_recordings_for_usernames(self, usernames: List[str]) -> Dict[str, List[Dict[str, Any]]]:
-        """Récupère les enregistrements de plusieurs profils en lots."""
+        """Fetch recordings for multiple profiles in batches."""
         await self.initialize()
 
         clean_usernames = sorted({str(username) for username in usernames if str(username or "").strip()})
@@ -1357,7 +1357,7 @@ class Database:
         return grouped
 
     async def get_import_recordings(self) -> List[Dict[str, Any]]:
-        """Récupère les médias importés."""
+        """Fetch imported media."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1373,7 +1373,7 @@ class Database:
             return [dict(row) for row in rows]
 
     async def get_recordings_count(self, username: str) -> int:
-        """Compte les enregistrements (convertis ou non)"""
+        """Count recordings (converted or not)"""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1385,7 +1385,7 @@ class Database:
             return row[0] if row else 0
 
     async def delete_recording(self, username: str, filename: str):
-        """Supprime un enregistrement de la base de données"""
+        """Delete a recording from the database"""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1396,7 +1396,7 @@ class Database:
             await db.commit()
 
     async def delete_recording_by_id(self, recording_id: str):
-        """Supprime un enregistrement de la base par son ID stable."""
+        """Delete a recording from the DB by its stable ID."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1407,7 +1407,7 @@ class Database:
             await db.commit()
 
     async def delete_playback_position(self, recording_id: str):
-        """Supprime la position de lecture associée à un média."""
+        """Delete the playback position associated with a media item."""
         await self.initialize()
 
         async with self._connect() as db:
@@ -1418,7 +1418,7 @@ class Database:
             await db.commit()
 
     async def mark_conversion_failed(self, username: str, filename: str, error: str):
-        """Incrémente le compteur d'échecs et stocke l'erreur pour un enregistrement."""
+        """Increment the failure counter and store the error for a recording."""
         await self.initialize()
         now = int(datetime.now().timestamp())
         async with self._connect() as db:
@@ -1435,7 +1435,7 @@ class Database:
             await db.commit()
 
     async def reset_conversion_failure(self, recording_id: str) -> bool:
-        """Réinitialise le compteur d'échecs (pour retry manuel). Retourne True si trouvé."""
+        """Reset the failure counter (for manual retry). Returns True if found."""
         await self.initialize()
         async with self._connect() as db:
             cursor = await db.execute(
@@ -1452,7 +1452,7 @@ class Database:
             return cursor.rowcount > 0
 
     async def get_recording_by_id(self, recording_id: str) -> Optional[Dict[str, Any]]:
-        """Récupère un enregistrement par son recording_id."""
+        """Fetch a recording by its recording_id."""
         await self.initialize()
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
@@ -1693,9 +1693,9 @@ class Database:
     async def get_followed_model(
         self, username: str, source_type: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Récupère un followed_model par username et source_type optionnel.
-        Utilisé pour résoudre la plateforme d'un modèle qui n'est pas dans
-        `tracked_models` mais dans la liste des favoris."""
+        """Fetch a followed_model by username and optional source_type.
+        Used to resolve the platform of a model that is not in
+        `tracked_models` but is in the favorites list."""
         await self.initialize()
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
@@ -1728,8 +1728,8 @@ class Database:
     async def delete_followed_model(
         self, username: str, source_type: Optional[str] = None
     ) -> None:
-        """Supprime un followed_model par username (et optionnellement par
-        source_type). Utilisé après unfollow depuis la page watch."""
+        """Delete a followed_model by username (and optionally by
+        source_type). Used after unfollow from the watch page."""
         await self.initialize()
         async with self._connect() as db:
             if source_type:
@@ -2035,103 +2035,11 @@ class Database:
             return [dict(row) for row in rows]
 
     # ==========================================
-    # Plugins CRUD
-    # ==========================================
-
-    async def plugin_list_records(self) -> List[Dict[str, Any]]:
-        """Liste tous les enregistrements plugins (installés ou en erreur)."""
-        await self.initialize()
-        async with self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                "SELECT * FROM plugins ORDER BY id"
-            )
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
-
-    async def plugin_get_record(self, plugin_id: str) -> Optional[Dict[str, Any]]:
-        await self.initialize()
-        async with self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                "SELECT * FROM plugins WHERE id = ?", (plugin_id,)
-            )
-            row = await cursor.fetchone()
-            return dict(row) if row else None
-
-    async def plugin_upsert_record(
-        self,
-        plugin_id: str,
-        version: str,
-        source_type: str,
-        source_repo: Optional[str],
-        enabled: bool = True,
-        installed: bool = True,
-        status: str = "pending_restart",
-        manifest_json: Optional[str] = None,
-    ):
-        await self.initialize()
-        now = int(datetime.now().timestamp())
-        async with self._connect() as db:
-            await db.execute(
-                """
-                INSERT INTO plugins (
-                    id, version, source_type, source_repo, enabled, installed,
-                    status, manifest_json, installed_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    version = excluded.version,
-                    source_type = excluded.source_type,
-                    source_repo = excluded.source_repo,
-                    enabled = excluded.enabled,
-                    installed = excluded.installed,
-                    status = excluded.status,
-                    manifest_json = excluded.manifest_json,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    plugin_id, version, source_type, source_repo,
-                    int(bool(enabled)), int(bool(installed)), status,
-                    manifest_json, now, now,
-                ),
-            )
-            await db.commit()
-
-    async def plugin_set_enabled(self, plugin_id: str, enabled: bool):
-        await self.initialize()
-        now = int(datetime.now().timestamp())
-        async with self._connect() as db:
-            await db.execute(
-                "UPDATE plugins SET enabled = ?, status = ?, updated_at = ? WHERE id = ?",
-                (int(bool(enabled)), "pending_restart", now, plugin_id),
-            )
-            await db.commit()
-
-    async def plugin_set_status(
-        self, plugin_id: str, status: str, error: Optional[str] = None
-    ):
-        await self.initialize()
-        now = int(datetime.now().timestamp())
-        async with self._connect() as db:
-            await db.execute(
-                "UPDATE plugins SET status = ?, last_error = ?, updated_at = ? WHERE id = ?",
-                (status, error, now, plugin_id),
-            )
-            await db.commit()
-
-    async def plugin_delete_record(self, plugin_id: str):
-        await self.initialize()
-        async with self._connect() as db:
-            await db.execute("DELETE FROM plugins WHERE id = ?", (plugin_id,))
-            await db.commit()
-
-    # ==========================================
     # JSON Migration
     # ==========================================
 
     async def migrate_from_json(self, json_path: Path):
-        """Migre les données depuis le fichier JSON vers SQLite"""
+        """Migrate data from the JSON file to SQLite"""
         if not json_path.exists():
             return
 
@@ -2153,7 +2061,7 @@ class Database:
                         source_type=model.get('sourceType') or model.get('source_type'),
                     )
 
-            logger.info("Migration JSON vers SQLite terminée", models_count=len(models))
+            logger.info("JSON to SQLite migration finished", models_count=len(models))
 
         except Exception as e:
-            logger.error("Erreur lors de la migration JSON", error=str(e), exc_info=True)
+            logger.error("Error during JSON migration", error=str(e), exc_info=True)

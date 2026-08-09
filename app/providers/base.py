@@ -112,7 +112,7 @@ class BaseProvider:
     async def resolve_stream(
         self, target: str, max_height: Optional[int] = None, **kwargs
     ) -> ResolvedStream:
-        raise ProviderError(f"{self.display_name or self.source_type} ne supporte pas resolve_stream")
+        raise ProviderError(f"{self.display_name or self.source_type} does not support resolve_stream")
 
     async def check_status(self, username: str) -> ProviderStatus:
         try:
@@ -139,7 +139,7 @@ class BaseProvider:
         return {"models": [], "total": 0, "page": kwargs.get("page", 1), "limit": kwargs.get("limit", 24), "total_pages": 1}
 
     async def login(self, username: str, password: str) -> dict[str, Any]:
-        raise ProviderError(f"Connexion non supportee pour {self.display_name or self.source_type}")
+        raise ProviderError(f"Login not supported for {self.display_name or self.source_type}")
 
     async def import_session(
         self,
@@ -150,7 +150,7 @@ class BaseProvider:
         user_agent: Optional[str] = None,
         x_bc: Optional[str] = None,
     ) -> dict[str, Any]:
-        raise ProviderError(f"Import de session non supporte pour {self.display_name or self.source_type}")
+        raise ProviderError(f"Session import not supported for {self.display_name or self.source_type}")
 
     async def logout(self) -> dict[str, Any]:
         if self.session_store:
@@ -158,13 +158,13 @@ class BaseProvider:
         return {"success": True}
 
     async def sync_following(self) -> list[dict[str, Any]]:
-        raise ProviderError(f"Synchronisation non supportee pour {self.display_name or self.source_type}")
+        raise ProviderError(f"Sync not supported for {self.display_name or self.source_type}")
 
     async def follow(self, username: str) -> dict[str, Any]:
-        raise ProviderError(f"Follow distant non supporte pour {self.display_name or self.source_type}")
+        raise ProviderError(f"Remote follow not supported for {self.display_name or self.source_type}")
 
     async def unfollow(self, username: str) -> dict[str, Any]:
-        raise ProviderError(f"Unfollow distant non supporte pour {self.display_name or self.source_type}")
+        raise ProviderError(f"Remote unfollow not supported for {self.display_name or self.source_type}")
 
     async def is_following(self, username: str) -> bool:
         return False

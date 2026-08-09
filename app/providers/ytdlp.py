@@ -86,7 +86,7 @@ class YtDlpProvider(BaseProvider):
             )
             if self.browser_fallback:
                 return await self.browser_fallback.resolve_stream(target, max_height=max_height)
-            raise ProviderError(f"yt-dlp n'a pas trouve de flux pour {self.display_name}/{target}") from exc
+            raise ProviderError(f"yt-dlp found no stream for {self.display_name}/{target}") from exc
 
     async def check_status(self, username: str) -> ProviderStatus:
         try:
@@ -107,7 +107,7 @@ class YtDlpProvider(BaseProvider):
 
     async def login(self, username: str, password: str) -> dict[str, object]:
         if not self.browser_fallback or not self.capabilities.can_login:
-            return {"success": False, "error": "Connexion non supportee"}
+            return {"success": False, "error": "Login not supported"}
         return await self.browser_fallback.login(username, password)
 
     async def import_session(
@@ -120,7 +120,7 @@ class YtDlpProvider(BaseProvider):
         x_bc: Optional[str] = None,
     ) -> dict[str, object]:
         if not self.browser_fallback or not self.capabilities.can_login:
-            return {"success": False, "error": "Import de session non supporte"}
+            return {"success": False, "error": "Session import not supported"}
         return await self.browser_fallback.import_session(
             username=username,
             cookie_header=cookie_header,
@@ -164,7 +164,7 @@ class YtDlpProvider(BaseProvider):
         try:
             from yt_dlp import YoutubeDL
         except Exception as exc:
-            raise ProviderError("yt-dlp n'est pas installe") from exc
+            raise ProviderError("yt-dlp is not installed") from exc
 
         from ..core.http_client import get_outbound_proxy_url
 
@@ -182,7 +182,7 @@ class YtDlpProvider(BaseProvider):
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(page_url, download=False)
         if not isinstance(info, dict):
-            raise ProviderError("Extraction yt-dlp invalide")
+            raise ProviderError("Invalid yt-dlp extraction")
         return info
 
     def _select_media_url(self, info: dict, max_height: Optional[int]) -> tuple[str, dict[str, str]]:
@@ -207,7 +207,7 @@ class YtDlpProvider(BaseProvider):
             candidates.append(fmt)
 
         if not candidates:
-            raise ProviderOfflineError("Aucun HLS/DASH public dans l'extraction")
+            raise ProviderOfflineError("No public HLS/DASH in extraction")
 
         def score(fmt: dict) -> tuple[int, int, int]:
             height = int(fmt.get("height") or 0)

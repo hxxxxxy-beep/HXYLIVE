@@ -49,17 +49,6 @@ def _is_local_hls_proxy_url(input_url: str) -> bool:
     return hostname in {"127.0.0.1", "localhost", "::1"} and parsed.path.startswith("/api/proxy/hls/")
 
 
-def _chaturbate_hls_input_args(input_url: str) -> List[str]:
-    if not _is_chaturbate_hls_url(input_url):
-        return []
-    return [
-        "-http_persistent", "1",
-        "-http_multiple", "0",
-        "-multiple_requests", "1",
-        "-headers", _CHATURBATE_HLS_HEADERS,
-    ]
-
-
 def _headers_dict_to_ffmpeg(headers: Optional[Dict[str, str]]) -> str:
     if not headers:
         return ""
@@ -127,7 +116,7 @@ def _build_ffmpeg_command(
     ]
 
     if not _is_local_hls_proxy_url(input_url):
-        # Options de reconnexion pour stabilité. The local HLS proxy serves
+        # Reconnect options for stability. The local HLS proxy serves
         # short-lived playlists/segments; reconnecting at EOF can stall with
         # an empty recording.
         cmd.extend([
@@ -152,8 +141,8 @@ def _build_ffmpeg_command(
         cmd.extend(["-http_proxy", proxy_url])
     elif is_socks_proxy(get_outbound_proxy_url()):
         logger.warning(
-            "Proxy SOCKS configuré: les requêtes Python l'utilisent, "
-            "mais FFmpeg ne supporte ici que les proxys HTTP(S)"
+            "SOCKS proxy configured: Python requests use it, "
+            "but FFmpeg here only supports HTTP(S) proxies"
         )
 
     cmd.extend(_hls_input_args(input_url, input_headers))
@@ -221,9 +210,9 @@ class FFmpegSession:
         self.name = display_name or person or session_id
         self.created_at = datetime.utcnow().isoformat() + "Z"
         self.start_time = time.time()
-        self.start_date = datetime.now().strftime("%Y-%m-%d")  # Date de début du stream
+        self.start_date = datetime.now().strftime("%Y-%m-%d")  # Stream start date
         self.start_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # Timestamp complet
-        self.recording_id = f"{person}_{self.start_timestamp}_{session_id[:6]}"  # ID unique
+        self.recording_id = f"{person}_{self.start_timestamp}_{session_id[:6]}"  # Unique ID
         self.process: Optional[subprocess.Popen] = None
         # Playback HLS is served from /streams/sessions/<id>/stream.m3u8
         self.playback_url = f"/streams/sessions/{self.id}/stream.m3u8"
@@ -248,7 +237,7 @@ class FFmpegSession:
         self.completed_at: Optional[str] = None
         self.completed_monotonic: Optional[float] = None
 
-        logger.debug("FFmpegSession initialisée",
+        logger.debug("FFmpegSession initialized",
                     session_id=session_id,
                     person=person,
                     display_name=display_name,
@@ -309,12 +298,12 @@ class FFmpegSession:
     def _writer_loop(self):
         """Read TS from ffmpeg stdout and optionally rotate recording segments."""
         if not self.process or not self.process.stdout:
-            logger.warning("Writer loop: pas de processus ou stdout", session_id=self.id)
+            logger.warning("Writer loop: no process or stdout", session_id=self.id)
             return
 
         os.makedirs(self.records_dir_for_person, exist_ok=True)
 
-        logger.info("Writer loop démarré",
+        logger.info("Writer loop started",
                    session_id=self.id,
                    person=self.person,
                    record_path=self.record_path,
@@ -341,7 +330,7 @@ class FFmpegSession:
                 f = open(self.record_path, "ab", buffering=CHUNK_SIZE)
                 segment_started_at = time.time()
                 logger.info(
-                    "Segment recording démarré",
+                    "Segment recording started",
                     session_id=self.id,
                     person=self.person,
                     segment_index=self.segment_index,
@@ -356,7 +345,7 @@ class FFmpegSession:
                 f.flush()
                 f.close()
                 logger.info(
-                    "Segment recording fermé",
+                    "Segment recording closed",
                     session_id=self.id,
                     person=self.person,
                     segment_index=self.segment_index,
@@ -417,7 +406,7 @@ class FFmpegSession:
                 if threshold_100mb > last_log_threshold:
                     last_log_threshold = threshold_100mb
                     logger.debug(
-                        "Progression écriture",
+                        "Write progress",
                         session_id=self.id,
                         bytes_written=total_bytes,
                         mb_written=f"{total_bytes / 1024 / 1024:.1f}",
@@ -442,7 +431,7 @@ class FFmpegSession:
             if threshold_100mb > last_log_threshold:
                 last_log_threshold = threshold_100mb
                 logger.debug(
-                    "Progression écriture",
+                    "Write progress",
                     session_id=self.id,
                     bytes_written=total_bytes,
                     mb_written=f"{total_bytes / 1024 / 1024:.1f}",
@@ -453,7 +442,7 @@ class FFmpegSession:
             while True:
                 chunk = self.process.stdout.read(CHUNK_SIZE)
                 if not chunk:
-                    logger.info("Writer loop: fin du flux",
+                    logger.info("Writer loop: end of stream",
                                session_id=self.id,
                                total_bytes=total_bytes,
                                chunk_count=chunk_count)
@@ -472,7 +461,7 @@ class FFmpegSession:
                 write_segmented(pending)
 
         except Exception:
-            logger.error("Erreur dans writer loop",
+            logger.error("Error in writer loop",
                         session_id=self.id,
                         exc_info=True,
                         total_bytes=total_bytes)
@@ -480,13 +469,13 @@ class FFmpegSession:
             elapsed = time.time() - self.start_time
             try:
                 close_current_file("finished")
-                logger.info("Writer loop terminé",
+                logger.info("Writer loop finished",
                            session_id=self.id,
                            total_bytes=total_bytes,
                            mb_written=f"{total_bytes / 1024 / 1024:.1f}",
                            elapsed_seconds=f"{elapsed:.1f}")
             except Exception as e:
-                logger.error("Erreur fermeture finale fichier",
+                logger.error("Error closing final file",
                            session_id=self.id,
                            error=str(e))
             self.bytes_written = total_bytes
@@ -510,7 +499,7 @@ class FFmpegSession:
                     deleted_paths.append(path)
             if deleted_paths:
                 logger.warning(
-                    "Fragment recording supprimé",
+                    "Fragment recording deleted",
                     session_id=self.id,
                     person=self.person,
                     reason=reason,
@@ -521,7 +510,7 @@ class FFmpegSession:
                 )
         except Exception as e:
             logger.error(
-                "Erreur suppression fragment recording",
+                "Error deleting fragment recording",
                 session_id=self.id,
                 person=self.person,
                 error=str(e),
@@ -546,7 +535,7 @@ class FFmpegManager:
         os.makedirs(self.sessions_root, exist_ok=True)
         os.makedirs(self.records_root, exist_ok=True)
 
-        logger.info("FFmpegManager initialisé",
+        logger.info("FFmpegManager initialized",
                    base_output_dir=base_output_dir,
                    ffmpeg_path=ffmpeg_path,
                    hls_time=hls_time,
@@ -584,19 +573,19 @@ class FFmpegManager:
             for s in self._sessions.values():
                 existing_key = getattr(s, "session_key", None) or getattr(s, "person", None)
                 if existing_key == session_key and s.is_running():
-                    logger.warning("Session déjà en cours", person=person, session_key=session_key, existing_session_id=s.id)
-                    raise RuntimeError(f"Une session est déjà en cours pour '{person}'.")
+                    logger.warning("Session already running", person=person, session_key=session_key, existing_session_id=s.id)
+                    raise RuntimeError(f"A session is already running for '{person}'.")
 
             session_id = uuid.uuid4().hex[:10]
-            logger.info("Génération Session ID", session_id=session_id, person=person)
+            logger.info("Generating session ID", session_id=session_id, person=person)
 
             sessions_dir = os.path.join(self.sessions_root, session_id)
             os.makedirs(sessions_dir, exist_ok=True)
-            logger.debug("Création répertoire session", path=sessions_dir)
+            logger.debug("Creating session directory", path=sessions_dir)
 
             records_dir_for_person = records_dir_for_person or os.path.join(self.records_root, person)
             os.makedirs(records_dir_for_person, exist_ok=True)
-            logger.debug("Création répertoire enregistrement", path=records_dir_for_person)
+            logger.debug("Creating recording directory", path=records_dir_for_person)
 
             sess = FFmpegSession(
                 session_id,
@@ -640,21 +629,21 @@ class FFmpegManager:
 
             safe_cmd = _redact_ffmpeg_command(cmd)
 
-            logger.debug("Construction commande FFmpeg",
+            logger.debug("Building FFmpeg command",
                         session_id=session_id,
                         command=" ".join(safe_cmd[:17]) + "...",
                         log_path=sess.log_path)
 
             log_f = open(sess.log_path, "ab", buffering=0)
             try:
-                logger.progress("Lancement processus FFmpeg", session_id=session_id, person=person)
+                logger.progress("Launching FFmpeg process", session_id=session_id, person=person)
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=log_f)
                 log_f.close()
                 log_f = None
                 sess.process = proc
                 self._sessions[sess.id] = sess
 
-                logger.success("Processus FFmpeg démarré",
+                logger.success("FFmpeg process started",
                              session_id=session_id,
                              pid=proc.pid,
                              person=person)
@@ -664,10 +653,10 @@ class FFmpegManager:
                 sess._writer_thread = t
                 t.start()
 
-                logger.info("Thread d'écriture TS démarré",
+                logger.info("TS writer thread started",
                           session_id=session_id,
                           thread_name=t.name)
-                logger.success("Session FFmpeg prête",
+                logger.success("FFmpeg session ready",
                              session_id=session_id,
                              person=person,
                              playback_url=sess.playback_url,
@@ -680,18 +669,18 @@ class FFmpegManager:
                     self._sessions.pop(sess.id, None)
                     sess.exit_returncode = proc.returncode
                     logger.warning(
-                        "FFmpeg arrêté immédiatement",
+                        "FFmpeg stopped immediately",
                         session_id=session_id,
                         person=person,
                         returncode=proc.returncode,
                         log_path=sess.log_path,
                     )
                     raise RuntimeError(
-                        "FFmpeg s'est arrêté immédiatement. Le flux est probablement indisponible ou le token HLS a expiré."
+                        "FFmpeg stopped immediately. The stream is probably unavailable or the HLS token expired."
                     )
 
             except Exception as e:
-                logger.critical("Erreur démarrage FFmpeg",
+                logger.critical("Error starting FFmpeg",
                               exc_info=True,
                               session_id=session_id,
                               person=person,
@@ -729,7 +718,7 @@ class FFmpegManager:
         writer = sess._writer_thread
         if writer and writer.is_alive():
             logger.warning(
-                "Nettoyage session HLS reporté: writer actif",
+                "HLS session cleanup deferred: writer active",
                 session_id=sess.id,
                 person=sess.person,
             )
@@ -745,7 +734,7 @@ class FFmpegManager:
                 continue
         if sess.bytes_written <= 0 or not has_recording:
             logger.info(
-                "Répertoire session HLS conservé pour diagnostic",
+                "HLS session directory kept for diagnostics",
                 session_id=sess.id,
                 person=sess.person,
                 bytes_written=sess.bytes_written,
@@ -756,7 +745,7 @@ class FFmpegManager:
         session_dir = os.path.realpath(sess.sessions_dir)
         if os.path.dirname(session_dir) != sessions_root:
             logger.error(
-                "Nettoyage session HLS refusé hors racine",
+                "HLS session cleanup refused outside root",
                 session_id=sess.id,
                 session_dir=session_dir,
                 sessions_root=sessions_root,
@@ -767,7 +756,7 @@ class FFmpegManager:
             if os.path.isdir(session_dir):
                 shutil.rmtree(session_dir)
                 logger.info(
-                    "Répertoire session HLS supprimé",
+                    "HLS session directory deleted",
                     session_id=sess.id,
                     person=sess.person,
                     path=session_dir,
@@ -775,7 +764,7 @@ class FFmpegManager:
             return True
         except OSError as exc:
             logger.warning(
-                "Échec nettoyage répertoire session HLS",
+                "Failed to clean HLS session directory",
                 session_id=sess.id,
                 person=sess.person,
                 path=session_dir,
@@ -801,7 +790,7 @@ class FFmpegManager:
             self._sessions.pop(session_id, None)
             pruned += 1
             logger.info(
-                "Session FFmpeg terminée retirée du registre",
+                "Finished FFmpeg session removed from registry",
                 session_id=session_id,
                 person=sess.person,
                 returncode=sess.exit_returncode,
@@ -813,7 +802,7 @@ class FFmpegManager:
         with self._lock:
             sess = self._sessions.get(session_id)
             if not sess:
-                logger.warning("Tentative d'arrêt session inexistante", session_id=session_id)
+                logger.warning("Attempt to stop nonexistent session", session_id=session_id)
                 return False
 
             duration = time.time() - sess.start_time
@@ -821,42 +810,42 @@ class FFmpegManager:
 
             if sess.process and sess.process.poll() is None:
                 try:
-                    logger.debug("Arrêt événement writer", session_id=session_id)
+                    logger.debug("Stopping writer event", session_id=session_id)
                     sess._stop_evt.set()
 
-                    logger.debug("Terminate processus FFmpeg", session_id=session_id, pid=sess.process.pid)
+                    logger.debug("Terminate FFmpeg process", session_id=session_id, pid=sess.process.pid)
                     sess.process.terminate()
 
                     try:
                         sess.process.wait(timeout=10)
-                        logger.info("Processus FFmpeg terminé proprement", session_id=session_id)
+                        logger.info("FFmpeg process exited cleanly", session_id=session_id)
                     except subprocess.TimeoutExpired:
-                        logger.warning("Timeout terminate, kill forcé", session_id=session_id)
+                        logger.warning("Terminate timeout, force kill", session_id=session_id)
                         sess.process.kill()
                         try:
                             sess.process.wait(timeout=5)
                         except subprocess.TimeoutExpired:
-                            logger.error("Processus FFmpeg toujours vivant après kill", session_id=session_id)
+                            logger.error("FFmpeg process still alive after kill", session_id=session_id)
                     sess.exit_returncode = sess.process.poll()
                 except Exception as e:
-                    logger.error("Erreur arrêt processus FFmpeg",
+                    logger.error("Error stopping FFmpeg process",
                                session_id=session_id,
                                error=str(e))
 
             if sess._writer_thread and sess._writer_thread.is_alive():
                 try:
-                    logger.debug("Attente fin thread writer", session_id=session_id)
+                    logger.debug("Waiting for writer thread to finish", session_id=session_id)
                     sess._writer_thread.join(timeout=2)
                     if sess._writer_thread.is_alive():
-                        logger.warning("Thread writer toujours actif après timeout", session_id=session_id)
+                        logger.warning("Writer thread still active after timeout", session_id=session_id)
                     else:
-                        logger.debug("Thread writer terminé", session_id=session_id)
+                        logger.debug("Writer thread finished", session_id=session_id)
                 except Exception as e:
-                    logger.error("Erreur join thread writer",
+                    logger.error("Error joining writer thread",
                                session_id=session_id,
                                error=str(e))
 
-            logger.success("Session arrêtée",
+            logger.success("Session stopped",
                           session_id=session_id,
                           person=sess.person,
                           duration_seconds=f"{duration:.1f}")
@@ -866,7 +855,7 @@ class FFmpegManager:
                 self._sessions.pop(session_id, None)
             else:
                 logger.warning(
-                    "Session FFmpeg conservée jusqu'à la fin du writer",
+                    "FFmpeg session kept until writer finishes",
                     session_id=session_id,
                     person=sess.person,
                 )
@@ -904,7 +893,7 @@ class FFmpegManager:
                     "idle_seconds": int(sess.seconds_since_progress()),
                 }
                 logger.warning(
-                    "Session FFmpeg sans progression, arrêt watchdog",
+                    "FFmpeg session with no progress, watchdog stop",
                     session_id=sess.id,
                     person=sess.person,
                     bytes_written=sess.bytes_written,

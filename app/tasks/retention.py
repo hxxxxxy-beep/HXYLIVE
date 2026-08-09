@@ -104,14 +104,14 @@ def _safe_record_roots(output_dir: Path, username: str, record_dirs: Iterable[Pa
             relative = root.relative_to(records_root)
         except (OSError, ValueError):
             logger.warning(
-                "Chemin de rétention hors records ignoré",
+                "Retention path outside records ignored",
                 username=username,
                 path=str(value),
             )
             continue
         if not relative.parts or relative.parts[0].lower() != profile_folder.lower():
             logger.warning(
-                "Chemin de rétention hors profil ignoré",
+                "Retention path outside profile ignored",
                 username=username,
                 path=str(value),
             )
@@ -143,7 +143,7 @@ def _update_metadata_caches(entries: dict[Path, set[str]]) -> None:
                 temp_file.replace(cache_file)
         except (OSError, ValueError, TypeError) as exc:
             logger.warning(
-                "Cache metadata de rétention non mis à jour",
+                "Retention metadata cache not updated",
                 path=str(cache_file),
                 error=str(exc),
             )
@@ -225,7 +225,7 @@ async def cleanup_retention_job(
         except OSError as exc:
             result["errors"] += 1
             logger.warning(
-                "Fichier de rétention non supprimé",
+                "Retention file not deleted",
                 username=username,
                 path=str(path),
                 error=str(exc),
@@ -312,7 +312,7 @@ async def cleanup_retention_job(
         except Exception as exc:
             result["errors"] += 1
             logger.warning(
-                "Etat DB de rétention non supprimé",
+                "Retention DB state not deleted",
                 username=username,
                 recording_id=recording_id,
                 error=str(exc),
@@ -332,7 +332,7 @@ async def cleanup_retention_job(
                     candidates[_path_key(path)] = path
         except OSError as exc:
             result["errors"] += 1
-            logger.warning("Scan rétention impossible", path=str(root), error=str(exc))
+            logger.warning("Retention scan failed", path=str(root), error=str(exc))
 
     for key, path in candidates.items():
         if key in handled_keys or _stem_key(path) in reserved_stems:

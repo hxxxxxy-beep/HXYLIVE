@@ -834,15 +834,14 @@ function showNotification(message, type) {
 // ============================================
 // Auto-refresh live thumbnails
 // ============================================
-// /api/following lit depuis la DB SQLite, qui n'est rafraîchie que tous les
-// 5min par sync_following_task. On ne peut donc pas s'appuyer sur l'API
-// pour avoir des URLs fresh. Stratégie:
-//   - Chaturbate (mmcdn / highwebmedia): cache-bust local via ?_cb=now,
-//     le CDN ignore les query params non-signés et re-sert la version
-//     courante au CDN.
-//   - CAM4 (xcdnpro.com): l'URL contient une signature ?s=... qu'il ne
-//     faut pas altérer. On skip — la miniature sera rafraîchie au prochain
-//     sync CAM4.
+// /api/following reads from the SQLite DB, which is only refreshed every
+// 5 minutes by sync_following_task. Do not rely on that API for fresh
+// URLs. Strategy:
+//   - Chaturbate (mmcdn / highwebmedia): local cache-bust via ?_cb=now;
+//     the CDN ignores unsigned query params and re-serves the current
+//     image.
+//   - Other CDNs (signed URL): leave the query alone — the thumbnail
+//     will refresh on the next Following sync.
 function _bustChaturbateUrl(src) {
   if (!src) return src;
   var isChaturbate = src.indexOf('mmcdn.com') !== -1 ||

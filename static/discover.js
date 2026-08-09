@@ -1833,12 +1833,12 @@ function showNotification(message, type) {
 // ============================================
 // Auto-refresh live thumbnails
 // ============================================
-// Re-fetch l'API et update uniquement les src des miniatures. L'API renvoie
-// à chaque appel une URL avec signature/timestamp frais (Chaturbate:
-// ?1776964320, CAM4: ?s=...), donc le browser re-télécharge sans avoir à
-// cache-buster manuellement.
+// Re-fetch the API and update only thumbnail src values. The API returns
+// on each call a URL with a fresh signature/timestamp (e.g. Chaturbate
+// ?1776964320), so the browser re-downloads without needing a manual
+// cache-buster.
 async function refreshLiveThumbnails() {
-  if (document.hidden) return; // suspend en background tab
+  if (document.hidden) return; // pause on background tabs
   var grid = document.getElementById('discoverGrid');
   if (!grid || !grid.querySelector('.discover-card')) return;
 
@@ -1887,7 +1887,7 @@ async function refreshLiveThumbnails() {
       }
     });
   } catch (e) {
-    // Silencieux: on réessaiera au prochain tick
+    // Silent: will retry on the next tick
   }
 }
 

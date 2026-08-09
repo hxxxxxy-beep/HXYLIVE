@@ -351,7 +351,7 @@ async def _fetch_provider(
         }
     except Exception as e:
         logger.warning(
-            "Discover provider échec",
+            "Discover provider failure",
             source_type=getattr(provider, "source_type", "unknown"),
             error=str(e),
         )
@@ -783,8 +783,8 @@ async def discover_models(
         if result is not None
     )
 
-    # Classement global: une room à 900 viewers doit passer devant une room à
-    # 50 viewers, quelle que soit la source. En vue agrégée, on prend la page 1
+    # Global ranking: a room with 900 viewers must rank above a room with
+    # 50 viewers, regardless of source. In the aggregated view, take page 1
     # de chaque provider avec assez de candidats pour trier puis paginer ici.
     # B1: viewers + viewers_desc keep this path; source_default preserves encounter
     # order (opt-in only — default query sort=viewers is unchanged).

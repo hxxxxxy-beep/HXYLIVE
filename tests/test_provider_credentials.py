@@ -102,7 +102,7 @@ class ProviderCredentialTests(unittest.IsolatedAsyncioTestCase):
             app_main._login_with_saved_provider_credentials = original
 
         self.assertEqual(409, raised.exception.status_code)
-        self.assertIn("session navigateur", raised.exception.detail)
+        self.assertIn("browser session", raised.exception.detail)
 
     async def test_saved_provider_login_missing_credentials_maps_to_auth_required(self):
         class Provider:
@@ -121,7 +121,7 @@ class ProviderCredentialTests(unittest.IsolatedAsyncioTestCase):
             app_main._login_with_saved_provider_credentials = original
 
         self.assertEqual(401, raised.exception.status_code)
-        self.assertIn("connexion requise", raised.exception.detail)
+        self.assertIn("login required", raised.exception.detail)
 
     async def test_models_and_follows_are_provider_aware(self):
         await self.db.add_or_update_model("alice", source_type="chaturbate")

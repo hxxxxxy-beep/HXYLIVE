@@ -273,10 +273,6 @@ async def _resolve_chaturbate_fetch_page(
     raise ChaturbateRankingAdapterError("chaturbate api/provider unavailable for ranking pool")
 
 
-# Back-compat alias for tests that patched the old name.
-_resolve_fetch_page = _resolve_chaturbate_fetch_page
-
-
 def _serialize_ranking_meta(
     snapshot_or_slice: Dict[str, Any],
     *,

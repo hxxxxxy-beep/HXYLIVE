@@ -1,5 +1,5 @@
 """
-Configuration centralisée de l'application HXYLIVE
+Centralized HXYLIVE application configuration
 """
 
 import os
@@ -17,19 +17,18 @@ def _env_int(name: str, default: int, minimum: Optional[int] = None) -> int:
     return value
 
 
-# Chemins de base
+# Base paths
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 STATIC_DIR = BASE_DIR / "static"
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", str(BASE_DIR / "data")))
 
-# Configuration FFmpeg
+# FFmpeg configuration
 FFMPEG_PATH = os.getenv("FFMPEG_PATH", "ffmpeg")
 HLS_TIME = int(os.getenv("HLS_TIME", "4"))
 HLS_LIST_SIZE = int(os.getenv("HLS_LIST_SIZE", "6"))
 
-# Configuration Chaturbate
+# Chaturbate configuration
 CB_RESOLVER_ENABLED = os.getenv("CB_RESOLVER_ENABLED", "false").lower() in {"1", "true", "yes"}
-CB_COOKIE: Optional[str] = os.getenv("CB_COOKIE")
 
 # Chaturbate Authentication
 CHATURBATE_USERNAME: Optional[str] = os.getenv("CHATURBATE_USERNAME")
@@ -48,13 +47,13 @@ HXYLIVE_MAX_FOLLOW_SYNC_ITEMS = _env_int("HXYLIVE_MAX_FOLLOW_SYNC_ITEMS", 5000, 
 # Standard HTTP_PROXY/HTTPS_PROXY/ALL_PROXY env vars are also honored.
 HXYLIVE_PROXY_URL: Optional[str] = os.getenv("HXYLIVE_PROXY_URL")
 
-# Configuration serveur
+# Server configuration
 PORT = int(os.getenv("PORT", "8080"))
 HOST = os.getenv("HOST", "0.0.0.0")
 
-# Configuration auto-record
-AUTO_RECORD_INTERVAL = int(os.getenv("AUTO_RECORD_INTERVAL", "120"))  # secondes
-CLEANUP_INTERVAL = int(os.getenv("CLEANUP_INTERVAL", "3600"))  # secondes
+# Auto-record configuration
+AUTO_RECORD_INTERVAL = int(os.getenv("AUTO_RECORD_INTERVAL", "120"))  # seconds
+CLEANUP_INTERVAL = int(os.getenv("CLEANUP_INTERVAL", "3600"))  # seconds
 
 # Recording settings (defaults, overridden by DB settings at runtime)
 AUTO_CONVERT = os.getenv("AUTO_CONVERT", "true").lower() in {"1", "true", "yes"}
@@ -70,18 +69,12 @@ TZ = os.getenv("TZ", "UTC")
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-# Créer les répertoires nécessaires
+# Create required directories
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 (OUTPUT_DIR / "sessions").mkdir(exist_ok=True)
 (OUTPUT_DIR / "records").mkdir(exist_ok=True)
 (OUTPUT_DIR / "thumbnails").mkdir(exist_ok=True)
 (OUTPUT_DIR / "cookies").mkdir(exist_ok=True)
 
-# Fichiers de données
+# Data files
 MODELS_FILE = OUTPUT_DIR / "models.json"
-
-# Configuration CORS
-CORS_ORIGINS = ["*"]
-CORS_CREDENTIALS = False
-CORS_METHODS = ["*"]
-CORS_HEADERS = ["*"]
