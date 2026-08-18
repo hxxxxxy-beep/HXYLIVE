@@ -1,4 +1,4 @@
-"""B1 / B1.1 ranking types, evidence-based viewer precision, default-order compat."""
+"""Discover viewer-count fields, sort helpers, and page-local browse API."""
 
 import time
 import unittest
@@ -6,8 +6,6 @@ import unittest
 from app.api import discover
 from app.providers.base import BaseProvider, ProviderCapabilities
 from app.services import discover_ranking_types as ranking
-from app.services import discover_ranking_wire as ranking_wire
-from app.services.discover_ranking import DiscoverRankingService
 
 
 class _Provider(BaseProvider):
@@ -230,17 +228,9 @@ class DiscoverRankingB1ApiTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.registry = _Registry([_Provider("chaturbate", models)])
         discover.init(None, None, self.registry)
-        ranking_wire.reset_ranking_wire_for_tests(
-            service=DiscoverRankingService(ttl_seconds=60),
-            clear_override=True,
-        )
 
     async def asyncTearDown(self):
         discover.init(None, None, None)
-        ranking_wire.reset_ranking_wire_for_tests(
-            service=DiscoverRankingService(),
-            clear_override=True,
-        )
 
     async def test_default_sort_viewers_order_unchanged(self):
         result = await discover.discover_models(

@@ -4,11 +4,15 @@
 
 This repository is the source of truth for rebuilding HXYLIVE on a clean VPS and a clean Mac. HXYLIVE is a self-hosted live-stream discovery, recording, playback, and media-management system.
 
-**URL-only handoff:** a new AI session that receives only `https://github.com/hxxxxxy-beep/HXYLIVE` must clone `main`, read [`docs/AI_REDEPLOY.md`](docs/AI_REDEPLOY.md) and this file, ask once for secrets/host facts, then install and verify. Do not invent secrets.
+**URL-only handoff:** a new AI session that receives only `https://github.com/hxxxxxy-beep/HXYLIVE` must clone `main`, read [`docs/AI_REDEPLOY.md`](docs/AI_REDEPLOY.md) and this file, ask once for secrets/host facts, then install and verify. Do not invent secrets. GitHub `main` is the source of truth for Cursor ↔ GitHub sync.
 
 For a clean-machine deployment, inspect the current environment, preserve any explicitly supplied backup data, use the documented defaults where appropriate, and ask for information that is genuinely required or materially changes the deployment.
 
 **Primary deploy guide:** [`docs/AI_REDEPLOY.md`](docs/AI_REDEPLOY.md)
+
+## Language
+
+Source code, identifiers, comments, UI copy, and deploy docs are English. Bilibili live-API fixtures may keep Chinese category and user names. Do not add non-English comments or identifiers.
 
 ## Fixed architecture
 

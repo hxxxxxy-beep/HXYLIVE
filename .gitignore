@@ -2,6 +2,7 @@
 # Generated Mac configuration
 # Historical cutover/build dumps (not needed to redeploy)
 # Historical unreferenced screenshots
+# Local font binaries (not part of the deployable snapshot)
 # Local handoff backups
 # Python, tests, and tooling
 # Runtime state and media
@@ -44,6 +45,8 @@
 /following.png
 /recordings.png
 /release/
+*.otf
+static/fonts/
 AI_HANDOFF_HXYLIVE.md.bak*
 __pycache__/
 data-dev/

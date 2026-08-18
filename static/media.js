@@ -1512,7 +1512,7 @@
 
     return '' +
       '<article class="media-card' + (item.isWatched ? ' watched' : '') + (selected ? ' selected' : '') +
-      (item.isMacOnly ? ' mac-only' : '') + '" role="button" tabindex="0" data-media-id="' + escapeHtml(item.id) + '">' +
+      (item.isMacOnly ? ' mac-only' : '') + '" role="button" tabindex="0" data-media-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(itemHasMac(item) ? 'Click to open on Mac · ⌘/Ctrl-click to play online' : 'Click to play') + '">' +
         '<div class="media-card-thumb">' +
           thumb +
           '<div class="media-card-placeholder"><span aria-hidden="true">' + marker + '</span></div>' +
@@ -2785,8 +2785,17 @@
     }
   }
 
-  function activateMediaItem(item) {
+  function activateMediaItem(item, options) {
     if (!item) return;
+    var preferOnline = !!(options && options.online);
+    if (preferOnline) {
+      if (itemHasVps(item) && item.url) {
+        openViewer(item);
+        return;
+      }
+      showToast('Online playback needs a VPS copy of this video', 'error');
+      return;
+    }
     if (itemHasMac(item)) {
       openLocally(item);
       return;
@@ -3085,22 +3094,24 @@
             openLocally(itemById(action.dataset.mediaId), { reveal: true });
             return;
           }
-          if (action.dataset.mediaAction === 'select-card') {
+          if (action.dataset.mediaAction === 'select-card' || action.dataset.mediaAction === 'select') {
             ev.preventDefault();
             ev.stopPropagation();
-            toggleDownloadSelection(action.dataset.mediaId, !state.selectedItemIds[action.dataset.mediaId]);
-            return;
-          }
-          if (action.dataset.mediaAction === 'select') {
-            ev.preventDefault();
-            ev.stopPropagation();
+            if (ev.metaKey || ev.ctrlKey) {
+              activateMediaItem(itemById(action.dataset.mediaId), { online: true });
+              return;
+            }
             toggleDownloadSelection(action.dataset.mediaId, !state.selectedItemIds[action.dataset.mediaId]);
             return;
           }
           return;
         }
         var card = ev.target.closest('.media-card');
-        if (card) activateMediaItem(itemById(card.dataset.mediaId));
+        if (card) {
+          activateMediaItem(itemById(card.dataset.mediaId), {
+            online: !!(ev.metaKey || ev.ctrlKey)
+          });
+        }
       });
       grid.addEventListener('keydown', function(ev) {
         if (ev.key !== 'Enter' && ev.key !== ' ') return;

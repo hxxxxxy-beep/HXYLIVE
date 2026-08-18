@@ -1,4 +1,4 @@
-"""A P5 — Twitch native dynamic content categories."""
+"""Twitch native dynamic content categories."""
 
 from __future__ import annotations
 
@@ -293,8 +293,8 @@ class TwitchFrontendContractP5Tests(unittest.TestCase):
         self.assertIn("Never silently map content/language/tag into gender", helpers)
         self.assertIn("params.set('game_id'", js)
         self.assertIn("resetDiscoverListState", js)
-        self.assertIn("discover_categories.js?v=9", html)
-        self.assertIn("discover.js?v=72", html)
+        self.assertIn("discover_categories.js?v=hxylive", html)
+        self.assertIn("discover.js?v=hxylive", html)
         self.assertNotIn('data-gender="female"', html)
 
 

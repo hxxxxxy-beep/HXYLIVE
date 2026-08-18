@@ -5,7 +5,7 @@ Self-hosted live-stream discovery, recording, playback, and media management.
 - **VPS:** FastAPI app, recorder, media library, Nginx, Docker Compose, persistent `/data`
 - **Mac:** localhost Helper that scans a video folder and opens short-lived VPS download links in Chrome
 
-**New Mac / new AI:** paste only `https://github.com/hxxxxxy-beep/HXYLIVE` — the agent reads [`docs/AI_REDEPLOY.md`](docs/AI_REDEPLOY.md) + [`AGENTS.md`](AGENTS.md), asks for secrets once, then clones, configures, and deploys.  
+**New Mac / new AI:** paste only `https://github.com/hxxxxxy-beep/HXYLIVE` — the agent clones latest `main`, reads [`docs/AI_REDEPLOY.md`](docs/AI_REDEPLOY.md) + [`AGENTS.md`](AGENTS.md), asks for secrets once, then deploys. GitHub `main` is the Cursor ↔ GitHub source of truth.  
 **Secrets checklist:** [`docs/SECRETS_OFFLINE_CHECKLIST.md`](docs/SECRETS_OFFLINE_CHECKLIST.md)
 
 Runtime databases, recordings, credentials, cookies, passwords, and machine paths are not stored in Git.
@@ -82,7 +82,7 @@ git clone https://github.com/hxxxxxy-beep/HXYLIVE.git && cd HXYLIVE
   --proxy http://127.0.0.1:7897
 ```
 
-Omit `--proxy` if unused. Health: `curl --noproxy '*' http://127.0.0.1:17899/health`.  
+Omit `--proxy` if unused. Optional `--chrome-download-dir` watches Chrome's save folder when it differs from `--video-dir`. Health: `curl --noproxy '*' http://127.0.0.1:17899/health`.  
 Uninstall (keeps videos): `./mac-helper/uninstall.sh`.
 
 ## Configuration

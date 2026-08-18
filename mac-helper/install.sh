@@ -4,17 +4,21 @@ set -eu
 usage() {
     cat <<'EOF'
 Usage:
-  ./mac-helper/install.sh --origin URL [--video-dir DIR] [--proxy URL]
+  ./mac-helper/install.sh --origin URL [--video-dir DIR] [--proxy URL] [--chrome-download-dir DIR]
 
 Examples:
   ./mac-helper/install.sh --origin http://203.0.113.10:8080
   ./mac-helper/install.sh --origin https://hxylive.example.com --proxy http://127.0.0.1:7897
+  ./mac-helper/install.sh --origin http://203.0.113.10:8080 \
+      --video-dir /Volumes/External/HXYLIVE \
+      --chrome-download-dir /Volumes/External/Downloads
 EOF
 }
 
 ORIGIN=""
 VIDEO_DIR="$HOME/Movies/HXYLIVE"
 PROXY_URL=""
+CHROME_DOWNLOAD_DIR=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -28,6 +32,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --proxy)
             PROXY_URL="${2:-}"
+            shift 2
+            ;;
+        --chrome-download-dir)
+            CHROME_DOWNLOAD_DIR="${2:-}"
             shift 2
             ;;
         -h|--help)
@@ -69,11 +77,20 @@ GUI_DOMAIN="gui/$(id -u)"
 mkdir -p "$APP_DIR" "$LAUNCH_AGENTS_DIR" "$LOG_DIR" "$VIDEO_DIR"
 install -m 755 "$SCRIPT_DIR/hxylive_mac_helper.py" "$HELPER_PATH"
 
-"$PYTHON_BIN" - "$PLIST_PATH" "$PYTHON_BIN" "$HELPER_PATH" "$VIDEO_DIR" "$ORIGIN" "$PROXY_URL" "$LOG_PATH" <<'PY'
+"$PYTHON_BIN" - "$PLIST_PATH" "$PYTHON_BIN" "$HELPER_PATH" "$VIDEO_DIR" "$ORIGIN" "$PROXY_URL" "$CHROME_DOWNLOAD_DIR" "$LOG_PATH" <<'PY'
 import plistlib
 import sys
 
-plist_path, python_bin, helper_path, video_dir, origin, proxy_url, log_path = sys.argv[1:]
+(
+    plist_path,
+    python_bin,
+    helper_path,
+    video_dir,
+    origin,
+    proxy_url,
+    chrome_download_dir,
+    log_path,
+) = sys.argv[1:]
 arguments = [
     python_bin,
     "-u",
@@ -85,6 +102,8 @@ arguments = [
 ]
 if proxy_url:
     arguments.extend(["--proxy", proxy_url])
+if chrome_download_dir:
+    arguments.extend(["--chrome-download-dir", chrome_download_dir])
 
 payload = {
     "Label": "com.hxylive.mac-helper",
@@ -111,6 +130,11 @@ fi
 printf 'HXYLIVE Mac Helper installed and running.\n'
 printf 'Video directory: %s\n' "$VIDEO_DIR"
 printf 'Allowed web origin: %s\n' "$ORIGIN"
+if [ -n "$CHROME_DOWNLOAD_DIR" ]; then
+    printf 'Chrome download watch dir: %s\n' "$CHROME_DOWNLOAD_DIR"
+else
+    printf 'Chrome download watch dir: auto (Chrome Preferences + ~/Downloads)\n'
+fi
 printf 'Log: %s\n' "$LOG_PATH"
 case "$VIDEO_DIR" in
     /Volumes/*)

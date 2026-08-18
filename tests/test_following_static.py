@@ -19,7 +19,7 @@ class FollowingStaticTests(unittest.TestCase):
         self.assertIn("function followingAvatarUrl(model)", js)
         self.assertIn("model.thumbnail_url", js)
         self.assertIn("isLiveCoverAvatarUrl", js)
-        self.assertIn("following.js?v=14", (ROOT / "static" / "following.html").read_text())
+        self.assertIn("following.js?v=hxylive", (ROOT / "static" / "following.html").read_text())
         self.assertIn("following-avatar-placeholder", js)
         self.assertIn("followingDisplayLabel(model)", js)
         self.assertIn("All providers", js)

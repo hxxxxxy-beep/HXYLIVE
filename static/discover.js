@@ -15,7 +15,7 @@ let currentPage = 1;
 let totalPages = 1;
 // Always a single website (default Twitch). Categories load for that site.
 let currentSource = 'twitch';
-// A P3.1 core category selection (generic — not gender-only).
+// A core category selection (generic — not gender-only).
 let selectedCategoryKey = 'all';
 let selectedCategoryType = 'all';
 let selectedCategoryRequestParam = null;
@@ -30,27 +30,17 @@ let discoverProviders = [];
 let providerCapsBySource = {};
 let discoverRequestSeq = 0;
 let isDiscoverLoading = false;
-let paginationQueryKey = '';
-let lockedTotalPages = null;
 let discoverHasMore = true;
 let loadedModelKeys = new Set();
 let infiniteScrollObserver = null;
 const DISCOVER_PAGE_LIMIT = 24;
 const DISCOVER_ALLOWED_SOURCES = { twitch: true, chaturbate: true, bilibili: true, stripchat: true };
 const DISCOVER_DEFAULT_SOURCE = 'twitch';
-// Same-page refill when provider returns empty models with has_more=true (e.g. Stripchat C1).
+// Same-page refill when a provider returns empty models with has_more=true.
 const DISCOVER_EMPTY_PAGE_RETRY_MAX = 2;
-// Non-ranking paths: empty tag-filtered provider pages → advance a few pages.
-// Ranking pools keep matches only; empty batch with has_more_batches → next batch.
+// Empty tag-filtered provider pages: advance a few pages looking for matches.
 const DISCOVER_TAG_EMPTY_PAGE_ADVANCE_MAX = 8;
 let emptyPageRetryCount = 0;
-// viewers_desc frozen pool leftovers (disabled): keep state vars for dead helpers.
-let discoverPoolId = null;
-let discoverRankingStartPage = 1;
-let discoverNextBatchStartPage = null;
-let discoverHasMoreBatches = false;
-let discoverPoolHasMore = false;
-let discoverPendingBatchDivider = false;
 // Followed / recording-linked channels, loaded before the first render.
 var recordingSet = new Set();
 var recordingTargetUsername = '';
@@ -58,7 +48,7 @@ var recordingTargetSource = 'chaturbate';
 var recordingProfiles = [];
 var recordingProfileSearch = '';
 let followedSet = new Set();
-// A P3: dynamic categories (only available=true + readiness=verified).
+// Dynamic categories (only available=true + readiness=verified).
 let categoriesRequestSeq = 0;
 let categoriesAbortController = null;
 let formalCategories = [];
@@ -72,7 +62,7 @@ function categoryHelpers() {
 }
 
 function categoryFiltersHost() {
-  return document.getElementById('categoryFilters') || document.getElementById('genderFilters');
+  return document.getElementById('categoryFilters');
 }
 
 function categoryRowHost() {
@@ -178,8 +168,6 @@ function readDiscoverStateFromUrl() {
   currentSearch = String(params.get('search') || '').trim();
   activeTags = parseTagParam(params.get('tags'));
   selectedSecondaryFilters = {};
-  paginationQueryKey = '';
-  lockedTotalPages = null;
   emptyPageRetryCount = 0;
   loadedModelKeys = new Set();
   discoverHasMore = true;
@@ -257,8 +245,6 @@ function resetDiscoverListState() {
   emptyPageRetryCount = 0;
   discoverHasMore = true;
   loadedModelKeys = new Set();
-  paginationQueryKey = '';
-  lockedTotalPages = null;
 }
 
 function clearCategoryButtons() {
@@ -685,39 +671,7 @@ async function loadDiscoverProviders() {
 // ============================================
 // Fetch discover data
 // ============================================
-function usesGlobalViewerRanking() {
-  // Global viewers_desc frozen pools removed — too slow for All/CB/Bili.
-  // Discover uses provider page_local + local viewers sort (original path).
-  return false;
-}
-
-function resetDiscoverRankingState() {
-  discoverPoolId = null;
-  discoverRankingStartPage = 1;
-  discoverNextBatchStartPage = null;
-  discoverHasMoreBatches = false;
-  discoverPoolHasMore = false;
-  discoverPendingBatchDivider = false;
-}
-
-function discoverQueryKey() {
-  return JSON.stringify({
-    source: currentSource || '',
-    category_key: selectedCategoryKey || 'all',
-    category_type: selectedCategoryType || 'all',
-    request_param: selectedCategoryRequestParam || '',
-    request_value: selectedCategoryRequestValue || '',
-    gender: currentGender || '',
-    search: currentSearch || '',
-    tags: activeTags.slice().sort(),
-    limit: DISCOVER_PAGE_LIMIT,
-    sort: usesGlobalViewerRanking() ? 'viewers_desc' : 'viewers',
-    ranking_start_page: discoverRankingStartPage || 1
-  });
-}
-
-function buildDiscoverParams(page, options) {
-  options = options || {};
+function buildDiscoverParams(page) {
   var params = new URLSearchParams({
     page: page || currentPage,
     limit: DISCOVER_PAGE_LIMIT
@@ -729,23 +683,13 @@ function buildDiscoverParams(page, options) {
     // Safety: never emit gender=<non-gender>. Caller should have blocked setCategory.
     return params;
   }
-  // Site-native filters only apply when a single website is selected.
   if (hasSelectedSource()) {
     if (applied.gender) params.set('gender', applied.gender);
-    // Twitch A P5: native content filter — never send as gender=.
     if (applied.game_id) params.set('game_id', applied.game_id);
-    // Bilibili native parent area filter.
     if (applied.parent_area_id) params.set('parent_area_id', applied.parent_area_id);
   }
   if (currentSearch) params.set('search', currentSearch);
   if (activeTags.length > 0) params.set('tags', activeTags.join(','));
-  if (usesGlobalViewerRanking()) {
-    params.set('sort', 'viewers_desc');
-    var startPage = Math.max(1, Number(options.rankingStartPage || discoverRankingStartPage || 1));
-    if (startPage > 1) params.set('ranking_start_page', String(startPage));
-    var poolId = options.poolId !== undefined ? options.poolId : discoverPoolId;
-    if (poolId && Number(page || 1) >= 2) params.set('pool_id', String(poolId));
-  }
   return params;
 }
 
@@ -754,14 +698,9 @@ async function fetchDiscover(options) {
   options = options || {};
   var append = options.append === true;
   var refillSamePage = options.refillSamePage === true;
-  var nextBatch = options.nextBatch === true;
   // Append advances page; same-page refill must NOT page+1.
-  // Next ranked batch starts a new frozen pool at ranking_start_page (page=1).
   var requestedPage;
-  if (nextBatch) {
-    requestedPage = 1;
-    append = true;
-  } else if (refillSamePage) {
+  if (refillSamePage) {
     requestedPage = Math.max(1, currentPage);
   } else if (append) {
     requestedPage = currentPage + 1;
@@ -770,27 +709,13 @@ async function fetchDiscover(options) {
   }
 
   var requestSeq = ++discoverRequestSeq;
-  var queryKey = discoverQueryKey();
   var scheduleSamePageRefill = false;
   var scheduleTagPageAdvance = false;
-  var scheduleNextRankingBatch = false;
-  if (!append && !refillSamePage && !nextBatch) {
+  if (!append && !refillSamePage) {
     currentPage = 1;
     discoverHasMore = true;
     loadedModelKeys = new Set();
     emptyPageRetryCount = 0;
-    resetDiscoverRankingState();
-  }
-  if (nextBatch) {
-    discoverPoolId = null;
-    discoverRankingStartPage = Math.max(
-      1,
-      Number(options.rankingStartPage || discoverNextBatchStartPage || (discoverRankingStartPage + 10))
-    );
-    discoverPendingBatchDivider = true;
-    discoverPoolHasMore = false;
-    discoverHasMoreBatches = false;
-    discoverNextBatchStartPage = null;
   }
   syncDiscoverStateToUrl();
   setPaginationLoading(true);
@@ -807,13 +732,10 @@ async function fetchDiscover(options) {
     }
     updateDiscoverLoadStatus();
   } else {
-    updateDiscoverLoadStatus(nextBatch ? 'Loading next ranked batch...' : 'Loading more...');
+    updateDiscoverLoadStatus('Loading more...');
   }
 
-  var params = buildDiscoverParams(requestedPage, {
-    poolId: nextBatch ? null : discoverPoolId,
-    rankingStartPage: discoverRankingStartPage
-  });
+  var params = buildDiscoverParams(requestedPage);
 
   try {
     var res = await fetch('/api/discover?' + params.toString());
@@ -827,19 +749,6 @@ async function fetchDiscover(options) {
       var modelsEmpty = !models.length;
       currentPage = Number(data.page || requestedPage);
       totalPages = Number(data.total_pages || currentPage);
-      if (usesGlobalViewerRanking()) {
-        if (data.pool_id) discoverPoolId = data.pool_id;
-        if (data.ranking_start_page) {
-          discoverRankingStartPage = Number(data.ranking_start_page) || discoverRankingStartPage;
-        }
-        discoverPoolHasMore = data.pool_has_more === true || (
-          data.pool_has_more == null && data.has_more === true && !data.has_more_batches
-        );
-        discoverHasMoreBatches = data.has_more_batches === true;
-        discoverNextBatchStartPage = data.next_batch_start_page != null
-          ? Number(data.next_batch_start_page)
-          : null;
-      }
       if (unsupported) {
         // Stop infinite scroll; never treat unsupported as empty live inventory pagination.
         discoverHasMore = false;
@@ -849,17 +758,7 @@ async function fetchDiscover(options) {
           ? data.has_more
           : currentPage < totalPages;
         if (modelsEmpty && discoverHasMore) {
-          // Tag-filtered ranking pools may yield 0 matches in a 10-page batch
-          // while more upstream pages remain — prefer next ranked batch over
-          // advancing empty pool pages or same-page refill.
-          if (
-            usesGlobalViewerRanking() &&
-            discoverHasMoreBatches &&
-            discoverNextBatchStartPage
-          ) {
-            scheduleNextRankingBatch = true;
-            emptyPageRetryCount = 0;
-          } else if (activeTags.length > 0) {
+          if (activeTags.length > 0) {
             if (emptyPageRetryCount < DISCOVER_TAG_EMPTY_PAGE_ADVANCE_MAX) {
               emptyPageRetryCount += 1;
               scheduleTagPageAdvance = true;
@@ -878,25 +777,19 @@ async function fetchDiscover(options) {
           emptyPageRetryCount = 0;
         } else {
           emptyPageRetryCount = 0;
-          // Empty end of pool but another ranked batch may still exist.
-          if (usesGlobalViewerRanking() && discoverHasMoreBatches && discoverNextBatchStartPage) {
-            scheduleNextRankingBatch = true;
-            discoverHasMore = true;
-          } else {
-            discoverHasMore = false;
-          }
+          discoverHasMore = false;
         }
       }
       // Keep the in-grid loader while auto-retrying empty pages so we never flash
       // "No models found" together with a bottom loading / end-of-list status.
-      var deferEmptyForRetry = modelsEmpty && !append && !refillSamePage && !nextBatch && (
-        scheduleTagPageAdvance || scheduleSamePageRefill || scheduleNextRankingBatch
+      var deferEmptyForRetry = modelsEmpty && !append && !refillSamePage && (
+        scheduleTagPageAdvance || scheduleSamePageRefill
       );
       if (!deferEmptyForRetry) {
         // Refill/advance must not wipe existing cards; if the grid still shows
         // the empty/loading placeholder and models arrived, replace instead of appending.
-        var renderAppend = append || refillSamePage || nextBatch;
-        if ((append || refillSamePage || nextBatch) && !modelsEmpty && grid && !grid.querySelector('.discover-card')) {
+        var renderAppend = append || refillSamePage;
+        if ((append || refillSamePage) && !modelsEmpty && grid && !grid.querySelector('.discover-card')) {
           renderAppend = false;
         }
         // Final empty result with no cards must replace the in-grid loader.
@@ -909,30 +802,12 @@ async function fetchDiscover(options) {
           models,
           data.provider_statuses || [],
           renderAppend,
-          {
-            unsupported: unsupported,
-            insertBatchDivider: discoverPendingBatchDivider && renderAppend && !modelsEmpty
-          }
+          { unsupported: unsupported }
         );
-        if (!modelsEmpty) discoverPendingBatchDivider = false;
       }
       updateDiscoverLoadStatus();
     } else {
-      var errPayload = null;
-      try { errPayload = await res.json(); } catch (parseErr) { errPayload = null; }
       if (requestSeq !== discoverRequestSeq) return;
-      // Expired / missing ranking pool → restart from page 1 once.
-      var errCode = errPayload && errPayload.detail && errPayload.detail.error;
-      if (!errCode && errPayload) errCode = errPayload.error;
-      if (
-        usesGlobalViewerRanking() &&
-        append &&
-        (errCode === 'ranking_pool_expired' || errCode === 'ranking_pool_not_found' || errCode === 'ranking_pool_id_required')
-      ) {
-        resetDiscoverRankingState();
-        fetchDiscover();
-        return;
-      }
       if (!append && !refillSamePage) {
         grid.innerHTML = '<div class="empty-message"><div class="icon">&#9888;</div><p>Failed to load models.</p></div>';
       }
@@ -952,9 +827,7 @@ async function fetchDiscover(options) {
   } finally {
     if (requestSeq === discoverRequestSeq) {
       setPaginationLoading(false);
-      if (scheduleNextRankingBatch && discoverHasMore) {
-        fetchDiscover({ nextBatch: true, rankingStartPage: discoverNextBatchStartPage });
-      } else if (scheduleTagPageAdvance && discoverHasMore) {
+      if (scheduleTagPageAdvance && discoverHasMore) {
         // Tag filter emptied this provider page; try the next page for matches.
         fetchDiscover({ append: true });
       } else if (scheduleSamePageRefill && discoverHasMore) {
@@ -1199,11 +1072,6 @@ function renderGrid(models, providerStatuses, append, options) {
       '</div>' +
     '</div>';
   }).join('');
-  if (opts.insertBatchDivider && html) {
-    html = '<div class="discover-batch-divider" role="separator">' +
-      '<span>Next batch</span>' +
-      '</div>' + html;
-  }
   if (append) {
     grid.insertAdjacentHTML('beforeend', html);
   } else {
@@ -1672,7 +1540,7 @@ function updateDiscoverLoadStatus(message) {
     status.style.display = 'none';
     return;
   }
-  if (message === 'Loading more...' || message === 'Loading next ranked batch...') {
+  if (message === 'Loading more...') {
     status.dataset.mode = 'loading-more';
     status.innerHTML = '<div class="icon" aria-hidden="true">&#9203;</div><p>' + message + '</p>';
     status.style.display = 'flex';
@@ -1691,15 +1559,6 @@ function updateDiscoverLoadStatus(message) {
 
 function loadNextDiscoverPage() {
   if (isDiscoverLoading || !discoverHasMore) return;
-  if (
-    usesGlobalViewerRanking() &&
-    !discoverPoolHasMore &&
-    discoverHasMoreBatches &&
-    discoverNextBatchStartPage
-  ) {
-    fetchDiscover({ nextBatch: true, rankingStartPage: discoverNextBatchStartPage });
-    return;
-  }
   fetchDiscover({ append: true });
 }
 

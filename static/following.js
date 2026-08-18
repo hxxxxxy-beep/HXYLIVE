@@ -872,7 +872,7 @@ async function refreshLiveThumbnails() {
 // Initialization
 // ============================================
 window.addEventListener('DOMContentLoaded', function() {
-  // Refresh live thumbnails toutes les 30s
+  // Refresh live thumbnails every 30s.
   setInterval(refreshLiveThumbnails, 30000);
 
   // Add animation keyframes

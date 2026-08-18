@@ -1,4 +1,4 @@
-"""Frontend contract tests for Discover empty-page same-page refill (C1)."""
+"""Frontend contract tests for Discover empty-page same-page refill."""
 
 from __future__ import annotations
 
@@ -21,18 +21,15 @@ class DiscoverEmptyPageRefillStaticTests(unittest.TestCase):
         self.assertIn("fetchDiscover({ refillSamePage: true })", js)
         self.assertIn("fetchDiscover({ append: true })", js)
         self.assertIn("emptyPageRetryCount = 0", js)
-        # page+1 only on append, never on refill / next ranked batch
+        # page+1 only on append, never on same-page refill
         self.assertIn("requestedPage = currentPage + 1", js)
         self.assertIn("refillSamePage) {\n    requestedPage = Math.max(1, currentPage)", js)
         # has_more=false / unsupported must not refill
         self.assertIn("data.supported === false", js)
         self.assertIn("Category not supported on this platform", js)
-        # cache bust
-        self.assertIn("discover.js?v=72", html)
-        self.assertNotIn("discover.js?v=24", html)
-        # Empty tagged ranking batch with more upstream → next batch, not pool page+.
-        self.assertIn("discoverHasMoreBatches", js)
-        self.assertIn("scheduleNextRankingBatch", js)
+        self.assertIn("discover.js?v=hxylive", html)
+        self.assertNotIn("discoverHasMoreBatches", js)
+        self.assertNotIn("scheduleNextRankingBatch", js)
         # Empty inventory must not stack footer "Loading more/end" with in-grid empty.
         self.assertIn("deferEmptyForRetry", js)
         self.assertIn("Auto-retry / append with an empty grid", js)

@@ -2,6 +2,8 @@
 
 **Repository:** https://github.com/hxxxxxy-beep/HXYLIVE (`main`)
 
+GitHub `main` is the source of truth for Cursor ↔ GitHub sync. A new device starts from that URL, not from a stale local folder or chat history.
+
 ## New device / new AI (start here)
 
 Give the AI **only** this repository URL. It must:
@@ -15,7 +17,7 @@ Give the AI **only** this repository URL. It must:
 ```text
 Clone https://github.com/hxxxxxy-beep/HXYLIVE and read docs/AI_REDEPLOY.md plus AGENTS.md.
 Deploy the latest main on a clean Ubuntu VPS at /opt/hxylive and install Mac Helper on this Mac.
-I will provide: VPS IP, .env secrets, data restore choice, Mac video dir, and whether to use proxy http://127.0.0.1:7897.
+I will provide: VPS IP, .env secrets, data restore choice, Mac video dir, optional Chrome download dir, and whether to use proxy http://127.0.0.1:7897.
 Ask only for missing required values, then install and verify.
 ```
 
@@ -39,6 +41,7 @@ Canonical install path: `/opt/hxylive`.
 - `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` (if Twitch discovery is needed)
 - Whether to restore a `/opt/hxylive/data` backup or start empty
 - Mac video directory (default `~/Movies/HXYLIVE`)
+- Optional Chrome download directory if it is not the library folder (otherwise the helper reads Chrome Preferences + `~/Downloads`)
 - Whether this Mac must use outbound proxy `http://127.0.0.1:7897`
 
 Secrets are never in Git. See [`SECRETS_OFFLINE_CHECKLIST.md`](SECRETS_OFFLINE_CHECKLIST.md).
@@ -73,7 +76,7 @@ git clone https://github.com/hxxxxxy-beep/HXYLIVE.git && cd HXYLIVE
 curl --noproxy '*' http://127.0.0.1:17899/health
 ```
 
-Omit `--proxy` and the `*_proxy` exports if unused. Confirm the Media page can request a Mac folder scan.
+Omit `--proxy` and the `*_proxy` exports if unused. Pass `--chrome-download-dir` only when Chrome saves files outside the library folder and Chrome Preferences cannot be read. Confirm the Media page can request a Mac folder scan.
 
 ## Validate before declaring success
 

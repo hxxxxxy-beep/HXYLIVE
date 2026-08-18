@@ -1,9 +1,9 @@
-// Discover dynamic category helpers (A P3 / P3.1).
+// Discover category helpers.
 // Pure logic only — no DOM. Generic category request mapping + safety gate.
 (function (root) {
   'use strict';
 
-  // /api/discover accepts gender (+ implicit all) and Twitch game_id (A P5).
+  // /api/discover accepts gender (+ implicit all), Twitch game_id, and Bilibili parent_area_id.
   var SUPPORTED_DISCOVER_REQUEST_PARAMS = { gender: true, game_id: true, parent_area_id: true };
   // Twitch / Bilibili have no All pill — these are the Discover defaults.
   var TWITCH_DEFAULT_CATEGORY = {

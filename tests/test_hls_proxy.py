@@ -377,7 +377,7 @@ class HlsProxyTests(unittest.TestCase):
 
         self.assertIn("/vendor/amazon-ivs-player.min.js", js)
         self.assertNotIn("https://player.live-video.net/1.4.1/amazon-ivs-player.min.js", js)
-        self.assertIn("/static/watch.js?v=38", html)
+        self.assertIn("/static/watch.js?v=hxylive", html)
         self.assertIn("amazon-ivs-wasmworker.min.js", main.IVS_PLAYER_ASSETS)
         self.assertIn("amazon-ivs-worker.min.js", main.IVS_PLAYER_ASSETS)
         self.assertIn("amazon-ivs-wasmworker.min.wasm", main.IVS_PLAYER_ASSETS)

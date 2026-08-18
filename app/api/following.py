@@ -526,8 +526,7 @@ async def get_following():
     """Returns all followed models across active providers with online
     status and isTracked flag."""
     try:
-        # Login status par source (fallback legacy si le registre provider
-        # is not initialized yet).
+        # Per-source login status (fallback if the provider registry is not ready).
         per_source_logins: dict = {}
         any_logged_in = False
         if _auth_service and not _provider_registry:
@@ -535,7 +534,7 @@ async def get_following():
             per_source_logins["chaturbate"] = bool(cb_status.get("isLoggedIn"))
             any_logged_in = per_source_logins["chaturbate"] or any_logged_in
 
-        # Lire le cache local de tous les follows (toutes sources confondues)
+        # Read the local follow cache across all sources.
         followed = []
         tracked_map = {}
         if _db:

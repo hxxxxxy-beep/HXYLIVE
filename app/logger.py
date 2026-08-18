@@ -10,12 +10,12 @@ from datetime import datetime
 from typing import Optional, List, Dict
 import json
 
-# Codes couleur ANSI
+# ANSI color codes
 class Colors:
     RESET = '\033[0m'
     BOLD = '\033[1m'
 
-    # Couleurs de base
+    # Base colors
     BLACK = '\033[30m'
     RED = '\033[31m'
     GREEN = '\033[32m'
@@ -25,7 +25,7 @@ class Colors:
     CYAN = '\033[36m'
     WHITE = '\033[37m'
 
-    # Couleurs brillantes
+    # Bright colors
     BRIGHT_RED = '\033[91m'
     BRIGHT_GREEN = '\033[92m'
     BRIGHT_YELLOW = '\033[93m'

@@ -27,7 +27,14 @@ SIZE_STABLE_POLLS = 2
 
 
 class Helper:
-    def __init__(self, video_dir: Path, allowed_origin: str, proxy_url: str, support_dir=None):
+    def __init__(
+        self,
+        video_dir: Path,
+        allowed_origin: str,
+        proxy_url: str,
+        support_dir=None,
+        chrome_download_dir=None,
+    ):
         self.video_dir_arg = str(video_dir)
         self.video_dir = Path(video_dir).expanduser().resolve()
         try:
@@ -36,6 +43,10 @@ class Helper:
             print(f"[mac-helper] could not create video dir {self.video_dir}: {exc!r}", flush=True)
         self.allowed_origin = allowed_origin.rstrip("/")
         self.proxy_url = proxy_url
+        # Optional override; otherwise Chrome Preferences + ~/Downloads are watched.
+        self.chrome_download_dir_arg = (
+            str(chrome_download_dir).strip() if chrome_download_dir else ""
+        )
         self.session_id = secrets.token_urlsafe(24)
         self.support_dir = support_dir or (Path.home() / "Library" / "Application Support" / "HXYLIVE")
         self.support_dir.mkdir(parents=True, exist_ok=True)
@@ -719,12 +730,87 @@ class Helper:
         except OSError:
             return self._stat_size_via_osascript(path)
 
-    def _chrome_file_ready(self, root: Path, path: Path, expected_size: int, last_size) -> tuple:
+    def _chrome_preference_download_dirs(self) -> list:
+        """Read Google Chrome profile download folders."""
+        found = []
+        chrome_root = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+        try:
+            prefs_paths = list(chrome_root.glob("*/Preferences"))
+        except OSError:
+            return found
+        for prefs_path in prefs_paths:
+            try:
+                data = json.loads(prefs_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            raw = str((data.get("download") or {}).get("default_directory") or "").strip()
+            if not raw:
+                continue
+            path = Path(raw).expanduser()
+            try:
+                if path.is_dir():
+                    found.append(path)
+            except OSError:
+                continue
+        return found
+
+    def _download_watch_dirs(self) -> list:
+        """
+        Folders where Chrome may write the flat basename before we file it
+        under video_dir/<streamer>/. Chrome's download folder can differ from
+        video_dir, which is only the final library root.
+        """
+        ordered = []
+        seen = set()
+        candidates = []
+        if self.chrome_download_dir_arg:
+            candidates.append(Path(self.chrome_download_dir_arg))
+        candidates.extend(self._chrome_preference_download_dirs())
+        candidates.append(Path.home() / "Downloads")
+        candidates.append(self._refresh_video_dir())
+        # Exact-basename recovery if a completed file was left next to video_dir.
+        try:
+            parent = self._refresh_video_dir().parent
+            if parent != self.video_dir:
+                candidates.append(parent)
+        except OSError:
+            pass
+        for raw in candidates:
+            try:
+                path = Path(raw).expanduser().resolve()
+            except OSError:
+                continue
+            key = str(path)
+            if key in seen:
+                continue
+            try:
+                if not path.is_dir():
+                    continue
+            except OSError:
+                continue
+            seen.add(key)
+            ordered.append(path)
+        return ordered
+
+    def _candidate_download_paths(self, download_name: str) -> list:
+        """Exact basename plus Chrome's 'name (N).ext' uniquify variants."""
+        stem = Path(download_name).stem
+        suffix = Path(download_name).suffix
+        names = [download_name]
+        for index in range(1, 10):
+            names.append(f"{stem} ({index}){suffix}")
+        paths = []
+        for root in self._download_watch_dirs():
+            for name in names:
+                paths.append(root / name)
+        return paths
+
+    def _chrome_file_ready(self, path: Path, expected_size: int, last_size) -> tuple:
         """
         Returns (ready, last_size_state).
         last_size_state is (size, stable_count) for unknown expected sizes.
         """
-        if (root / f"{path.name}.crdownload").exists():
+        if (path.parent / f"{path.name}.crdownload").exists():
             return False, (None, 0)
         if self._is_incomplete_download(path) or not path.exists():
             return False, (None, 0)
@@ -741,15 +827,22 @@ class Helper:
         return count >= SIZE_STABLE_POLLS, (size, count)
 
     def _wait_for_chrome_download(self, download_name: str, expected_size: int) -> Path:
-        root = self._refresh_video_dir()
-        target = root / download_name
         deadline = time.time() + DOWNLOAD_WAIT_SECONDS
-        last_size = (None, 0)
-        print(f"[mac-helper] waiting for Chrome file {download_name}", flush=True)
+        last_sizes = {}
+        watch = self._download_watch_dirs()
+        watch_label = ", ".join(str(path) for path in watch) or "(none)"
+        print(
+            f"[mac-helper] waiting for Chrome file {download_name} in {watch_label}",
+            flush=True,
+        )
         while time.time() < deadline:
-            ready, last_size = self._chrome_file_ready(root, target, expected_size, last_size)
-            if ready:
-                return target
+            for target in self._candidate_download_paths(download_name):
+                key = str(target)
+                state = last_sizes.get(key, (None, 0))
+                ready, state = self._chrome_file_ready(target, expected_size, state)
+                last_sizes[key] = state
+                if ready:
+                    return target
             time.sleep(DOWNLOAD_POLL_SECONDS)
         raise TimeoutError(f"timed out waiting for Chrome download: {download_name}")
 
@@ -1006,13 +1099,26 @@ def main():
     parser.add_argument("--origin", default=os.getenv("HXYLIVE_ORIGIN", ""))
     parser.add_argument("--port", type=int, default=17899)
     parser.add_argument("--proxy", default=os.getenv("HXYLIVE_PROXY_URL", ""))
+    parser.add_argument(
+        "--chrome-download-dir",
+        default=os.getenv("HXYLIVE_CHROME_DOWNLOAD_DIR", ""),
+        help="Optional Chrome download folder to watch (defaults to Chrome Preferences)",
+    )
     args = parser.parse_args()
     if not args.origin:
         parser.error("--origin or HXYLIVE_ORIGIN is required")
-    helper = Helper(Path(args.video_dir), args.origin, args.proxy)
+    helper = Helper(
+        Path(args.video_dir),
+        args.origin,
+        args.proxy,
+        chrome_download_dir=args.chrome_download_dir or None,
+    )
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(helper))
     print(f"HXYLIVE Mac helper listening on http://127.0.0.1:{args.port}")
     print(f"Video folder: {helper.video_dir}")
+    watch = helper._download_watch_dirs()
+    if watch:
+        print("Watching Chrome downloads in: " + ", ".join(str(path) for path in watch))
     server.serve_forever()
 
 

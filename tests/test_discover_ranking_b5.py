@@ -1,4 +1,4 @@
-"""Discover frontend: global viewers pool disabled; page_local browse path."""
+"""Discover frontend: page-local browse path, no retired sort UI."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class DiscoverGlobalRankingFrontendTests(unittest.TestCase):
+class DiscoverFrontendContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.js = (ROOT / "static" / "discover.js").read_text(encoding="utf-8")
@@ -25,25 +25,22 @@ class DiscoverGlobalRankingFrontendTests(unittest.TestCase):
         self.assertNotIn("sortControlsEnabled", self.js)
         self.assertNotIn("selectedSortMode", self.js)
 
-    def test_global_viewer_ranking_pool_disabled(self):
-        self.assertIn("usesGlobalViewerRanking", self.js)
-        self.assertIn("function usesGlobalViewerRanking() {\n  // Global viewers_desc frozen pools removed", self.js)
-        self.assertIn("return false;\n}", self.js)
-        # Dead pool helpers may remain; they must not arm sort/pool params.
-        self.assertIn(
-            "if (usesGlobalViewerRanking()) {\n    params.set('sort', 'viewers_desc');",
-            self.js,
-        )
+    def test_global_viewer_ranking_pool_removed(self):
+        self.assertNotIn("usesGlobalViewerRanking", self.js)
+        self.assertNotIn("viewers_desc", self.js)
+        self.assertNotIn("pool_id", self.js)
+        self.assertNotIn("ranking_start_page", self.js)
+        self.assertNotIn("nextBatch", self.js)
 
     def test_categories_helper_no_longer_offers_sort_ui(self):
         self.assertNotIn("canOfferViewersDescSort", self.cat)
         self.assertNotIn("rankingSortControlsEnabled", self.cat)
         self.assertNotIn("parseRankingHints", self.cat)
 
-    def test_cache_bump(self):
-        self.assertIn("discover.js?v=72", self.html)
-        self.assertIn("discover_categories.js?v=9", self.html)
-        self.assertIn("styles.css?v=93", self.html)
+    def test_static_cache_token(self):
+        self.assertIn("discover.js?v=hxylive", self.html)
+        self.assertIn("discover_categories.js?v=hxylive", self.html)
+        self.assertIn("styles.css?v=hxylive", self.html)
 
     def test_source_row_has_no_aggregate_all_button(self):
         self.assertNotIn('data-source="all">All</button>', self.js)

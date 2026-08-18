@@ -1,7 +1,7 @@
-"""B-line Discover ranking types and additive field helpers (B1 / B1.1).
+"""Discover viewer-count fields and sort helpers.
 
-B1.1: viewer_count_precision is evidence-based — never exact from source
-whitelist or “viewers is an int” alone. No candidate pool / multi_page_global.
+viewer_count_precision is evidence-based — never exact from a source
+whitelist or from “viewers is an int” alone.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 
 CONTRACT_VERSION = "ab-shared-v1"
 
-# Legacy query values still accepted by /api/discover.
+# Query values still accepted by /api/discover.
 LEGACY_SORT_VIEWERS = "viewers"
 LEGACY_SORT_NEWEST = "newest"
 
@@ -304,7 +304,7 @@ def annotate_model_viewer_fields(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def b1_default_ranking_mode(*, supported: bool = True) -> str:
-    """B1 never claims multi_page_global or unproven provider_native."""
+    """Page-local browse never claims multi_page_global or unproven provider_native."""
     if not supported:
         return RankingMode.UNAVAILABLE.value
     return RankingMode.PAGE_LOCAL.value

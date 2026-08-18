@@ -1,4 +1,4 @@
-"""A P3 / P3.1 dynamic category frontend contract + pure-logic tests."""
+"""Dynamic category frontend contract and pure-logic tests."""
 
 from __future__ import annotations
 
@@ -293,10 +293,8 @@ class DiscoverDynamicCategoriesStaticTests(unittest.TestCase):
         self.assertIn('id="categoryFilters"', html)
         self.assertNotIn('onclick="setGender(', html)
         self.assertNotIn('data-gender="female"', html)
-        self.assertIn("discover_categories.js?v=9", html)
-        self.assertIn("discover.js?v=72", html)
-        self.assertNotIn("discover.js?v=23", html)
-        self.assertNotIn("discover.js?v=25", html)
+        self.assertIn("discover_categories.js?v=hxylive", html)
+        self.assertIn("discover.js?v=hxylive", html)
 
     def test_discover_js_uses_generic_category_state(self):
         js = (ROOT / "static" / "discover.js").read_text()

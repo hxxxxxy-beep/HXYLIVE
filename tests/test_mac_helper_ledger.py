@@ -117,6 +117,33 @@ class MacHelperLedgerTests(unittest.TestCase):
         self.assertEqual(scanned["files"][0]["recordingId"], "rec_clip")
         self.assertEqual(scanned["files"][0]["filename"], "model/2026-08-02.mp4")
 
+    def test_relocate_picks_up_chrome_download_outside_video_dir(self):
+        chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
+        chrome_dir.mkdir()
+        self.helper.chrome_download_dir_arg = str(chrome_dir)
+        chrome_name = "hxylive-rec_clip__pending.mp4"
+        source = chrome_dir / chrome_name
+        source.write_bytes(b"0123456789ab")
+        item = {
+            "recordingId": "rec_clip",
+            "downloadFilename": chrome_name,
+            "relativePath": "model/2026-08-02.mp4",
+            "size": 12,
+        }
+        self.helper._relocate_one(item)
+        dest = self.video_dir / "model" / "2026-08-02.mp4"
+        self.assertFalse(source.exists())
+        self.assertTrue(dest.exists())
+        self.assertEqual(dest.read_bytes(), b"0123456789ab")
+
+    def test_download_watch_dirs_include_chrome_override(self):
+        chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
+        chrome_dir.mkdir()
+        self.helper.chrome_download_dir_arg = str(chrome_dir)
+        watched = self.helper._download_watch_dirs()
+        self.assertEqual(watched[0], chrome_dir.resolve())
+        self.assertIn(self.video_dir.resolve(), watched)
+
     def test_open_local_rejects_path_escape(self):
         with self.assertRaises(ValueError):
             self.helper.open_local(relative="../outside.mp4")

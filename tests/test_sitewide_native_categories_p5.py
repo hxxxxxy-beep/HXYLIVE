@@ -1,4 +1,4 @@
-"""Site-wide A P5 — formal categories gate for every Discover source."""
+"""Formal categories gate for every Discover source."""
 
 from __future__ import annotations
 
@@ -75,8 +75,8 @@ class SitewideFrontendStaticTests(unittest.TestCase):
         self.assertIn('id="categoryFilters"', html)
         self.assertNotIn('onclick="setGender(', html)
         self.assertNotIn('data-gender="female"', html)
-        self.assertIn("discover_categories.js?v=9", html)
-        self.assertIn("discover.js?v=72", html)
+        self.assertIn("discover_categories.js?v=hxylive", html)
+        self.assertIn("discover.js?v=hxylive", html)
         self.assertIn("never render unsupported", js.lower())
         self.assertIn("no grey disabled pills", js.lower())
         self.assertNotIn("unsupportedClass", js)

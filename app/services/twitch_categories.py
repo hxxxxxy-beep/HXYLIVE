@@ -1,4 +1,4 @@
-"""Twitch native content-category discovery (A P5).
+"""Twitch native content-category discovery.
 
 Discover Twitch pills use a curated allowlist (not Helix top-games).
 Short TTL cache. Never invents Female/Male/Trans/Couple.

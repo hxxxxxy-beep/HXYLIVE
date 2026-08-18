@@ -2,14 +2,6 @@
    GLOBAL STYLES & VARIABLES
    ============================================ */
 
-@font-face {
-  font-family: 'HXYLIVE Source Han Serif';
-  src: url('/static/fonts/SourceHanSerifCN-Medium.otf') format('opentype');
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-}
-
 * {
   margin: 0;
   padding: 0;
@@ -17,7 +9,7 @@
 }
 
 :root {
-  /* Couleurs principales */
+  /* Primary colors */
   --bg-primary: #0a0e27;
   --bg-secondary: #111432;
   --bg-dark: #0f1419;
@@ -25,7 +17,7 @@
   --bg-card-hover: #232a4a;
   --bg-glass: rgba(26, 31, 58, 0.7);
 
-  /* Texte */
+  /* Text */
   --text-primary: #ffffff;
   --text-secondary: #a0aec0;
   --text-muted: #6b7280;
@@ -40,7 +32,7 @@
   --danger-light: #f87171;
   --warning: #f59e0b;
 
-  /* Bordures & Ombres */
+  /* Borders and shadows */
   --border: rgba(255, 255, 255, 0.1);
   --border-light: rgba(255, 255, 255, 0.05);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -48,14 +40,14 @@
   --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.5);
   --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.3);
 
-  /* Animations */
+  /* Motion */
   --transition-fast: 0.15s ease;
   --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body {
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-weight: 500;
   background: linear-gradient(135deg, var(--bg-primary) 0%, #0d1128 50%, #0a0e27 100%);
   background-attachment: fixed;
@@ -1620,7 +1612,7 @@ button {
   color: var(--text-primary);
   font-size: 0.95rem;
   transition: all var(--transition-normal);
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   font-weight: 500;
   font-style: normal;
   font-variant: normal;
@@ -1629,7 +1621,7 @@ button {
 
 .search-input::placeholder {
   color: var(--text-muted);
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   font-weight: 500;
 }
 
@@ -4260,7 +4252,7 @@ body.watch-recording-open {
   outline: none;
   color: var(--text-primary);
   font-size: 0.9rem;
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   font-weight: 500;
   font-style: normal;
   font-variant: normal;
@@ -4269,7 +4261,7 @@ body.watch-recording-open {
 
 .tag-input::placeholder {
   color: var(--text-muted);
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   font-weight: 500;
 }
 
@@ -5319,7 +5311,7 @@ body.player-modal-open {
 }
 
 .media-card.mac-only .media-card-title {
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .media-sort-buttons {
@@ -5351,7 +5343,7 @@ body.player-modal-open {
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.24);
   color: var(--text-muted);
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
 }
 
 .media-search-wrap input {
@@ -5361,7 +5353,7 @@ body.player-modal-open {
   outline: none;
   background: transparent;
   color: var(--text-primary);
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   font-size: inherit;
   font-style: normal;
   font-variant: normal;
@@ -5370,7 +5362,7 @@ body.player-modal-open {
 
 .media-search-wrap input::placeholder {
   color: var(--text-muted);
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
 }
 
 .media-select {
@@ -5461,7 +5453,7 @@ body.player-modal-open {
   margin-top: 0.2rem;
   color: var(--text-muted);
   font-size: 0.86rem;
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
 }
 
 .media-recent-heading-copy {
@@ -7628,7 +7620,7 @@ body.media-profile-settings-open {
 }
 
 html, body, body *, button, input, select, textarea {
-  font-family: 'HXYLIVE Source Han Serif', 'Source Han Serif CN', 'Source Han Serif SC', 'Songti SC', serif !important;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
   font-weight: 500 !important;
   text-transform: none !important;
 }

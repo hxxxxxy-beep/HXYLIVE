@@ -40,7 +40,7 @@
   }
 
   // Load header
-  fetch('/static/header.html?v=hxylive-2')
+  fetch('/static/header.html?v=hxylive')
     .then(res => res.text())
     .then(html => {
       const placeholder = document.getElementById('header-placeholder');

@@ -8,13 +8,15 @@ Install:
 ./mac-helper/install.sh --origin http://YOUR_VPS_IP:8080
 ```
 
-Optional proxy:
+Optional proxy (required on the development Mac that uses port 7897):
 
 ```bash
 ./mac-helper/install.sh \
   --origin http://YOUR_VPS_IP:8080 \
   --proxy http://127.0.0.1:7897
 ```
+
+If Chrome saves files outside the library folder, pass `--chrome-download-dir`. Otherwise the helper watches Chrome Preferences plus `~/Downloads`.
 
 Verify:
 

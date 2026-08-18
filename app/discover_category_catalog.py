@@ -1,6 +1,5 @@
 """Discover category taxonomy, contextual synonym maps, and categories API payloads.
 
-A-line P1/P2/P2.1/P3.1 (ab-shared-v1 + categories-request-v1).
 Does not implement ranking pools or mutate /api/discover list semantics.
 Classification must never use title, username, avatar, or pixels.
 
@@ -23,14 +22,14 @@ from .discover_gender_capabilities import (
 )
 
 CONTRACT_VERSION = "ab-shared-v1"
-# P2.1 readiness + P3.1 request mapping (canonical_key / request_param / filter_scope).
+# Readiness plus request mapping (canonical_key / request_param / filter_scope).
 SCHEMA_VERSION = "categories-request-v1"
 
 FILTER_SCOPE_PRIMARY = "primary"
 FILTER_SCOPE_SECONDARY = "secondary"
 
 # Discover list API: gender (+ implicit all), Twitch game_id, Bilibili parent_area_id.
-# Other request_param values must not be auto-sent by the frontend (P3.1 gate).
+# Other request_param values must not be auto-sent by the frontend.
 SUPPORTED_DISCOVER_REQUEST_PARAMS = frozenset({"gender", "game_id", "parent_area_id"})
 CATEGORY_TYPE_CONTENT = "content"
 FILTER_SCOPE_CONTENT = "content"
@@ -307,14 +306,14 @@ def _chaturbate_ranking_hints() -> Dict[str, Any]:
         "viewer_count_reliable": True,
         "viewer_count_precision_default": "exact",
         "supported_sort_modes": ["source_default"],
-        # Contract alias pair: ranking_modes (P4.1) + ranking_modes_available (ab-shared-v1).
+        # Contract alias pair: ranking_modes + ranking_modes_available.
         "ranking_modes": list(modes),
         "ranking_modes_available": list(modes),
         "evidence_source": "num_users",
         "implementation_status": "verified",
         "evidence_note": (
             "Chaturbate roomlist num_users exact evidence; "
-            "Discover stays page_local (multi_page_global pool disabled)."
+            "Discover stays page_local."
         ),
     }
 
@@ -354,7 +353,7 @@ def ranking_hints_for_source(source: str) -> Dict[str, Any]:
 
 
 def _request_mapping_for(category_type: str, canonical: str) -> Dict[str, Any]:
-    """Declare how a category maps onto /api/discover query params (P3.1)."""
+    """Declare how a category maps onto /api/discover query params."""
     ctype = (category_type or "").strip().lower()
     key = (canonical or "").strip().lower() or CANONICAL_CATEGORY_ALL
     if ctype == CATEGORY_TYPE_ALL or key == CANONICAL_CATEGORY_ALL:
@@ -371,7 +370,7 @@ def _request_mapping_for(category_type: str, canonical: str) -> Dict[str, Any]:
         }
     # Content / language / tag / region: declare mapping, never gender.
     if ctype == CATEGORY_TYPE_CONTENT or ctype == "content":
-        # Twitch A P5 uses game_id; Bilibili uses parent_area_id; else category=.
+        # Twitch uses game_id; Bilibili uses parent_area_id; else category=.
         if key.startswith("game:"):
             game_id = key.split(":", 1)[1].strip()
             return {
@@ -458,7 +457,7 @@ def _category_item(
         mapping["filter_scope"] = filter_scope
 
     item: Dict[str, Any] = {
-        # ab-shared-v1 name + P3.1 alias
+        # canonical_category plus canonical_key alias
         "canonical_category": canonical,
         "canonical_key": canonical,
         "display_label": label,
@@ -534,7 +533,7 @@ def _unsupported_gender_item(canonical: str, reason_code: str) -> Dict[str, Any]
 
 
 def twitch_content_category_item(game_id: str, name: str) -> Dict[str, Any]:
-    """Formal Twitch native game/content category (A P5)."""
+    """Formal Twitch native game/content category."""
     gid = str(game_id or "").strip()
     label = str(name or "").strip()
     return _category_item(
@@ -658,7 +657,7 @@ def build_categories_payload(
             "note": "Default catalogue path.",
         })
 
-    # A P5: Twitch native content categories before gender diagnostics.
+    # Twitch native content categories before gender diagnostics.
     if source_key == "twitch":
         seen_game_ids: set[str] = set()
         for row in list(twitch_games or []):

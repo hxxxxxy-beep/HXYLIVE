@@ -39,10 +39,6 @@ from ..services.discover_ranking_types import (
     sorts_by_newest,
     sorts_by_viewers,
 )
-from ..services.discover_ranking_wire import (
-    handle_global_ranking_discover,
-    is_global_ranking_eligible,
-)
 
 router = APIRouter(prefix="/api", tags=["discover"])
 
@@ -324,7 +320,7 @@ async def _fetch_provider(
             "allow_browser": allow_browser,
             "exact_search_fallback": exact_search_fallback,
         }
-        # Twitch A P5: pass native game_id only to Twitch; never as gender=.
+        # Pass native game_id only to Twitch; never as gender=.
         if game_id and getattr(provider, "source_type", "") == "twitch":
             call_kwargs["game_id"] = game_id
         # Bilibili: pass native parent_area_id only to Bilibili.
@@ -452,7 +448,7 @@ async def discover_models(
     gender: Optional[str] = Query(None),
     game_id: Optional[str] = Query(
         None,
-        description="Twitch Helix game_id content filter (A P5); never a gender alias",
+        description="Twitch Helix game_id content filter; never a gender alias",
     ),
     parent_area_id: Optional[str] = Query(
         None,
@@ -461,15 +457,6 @@ async def discover_models(
     search: Optional[str] = Query(None),
     tags: Optional[str] = Query(None),
     sort: Optional[str] = Query("viewers"),
-    pool_id: Optional[str] = Query(
-        None,
-        description="viewers_desc ranking snapshot id (required for page>=2)",
-    ),
-    ranking_start_page: Optional[int] = Query(
-        None,
-        ge=1,
-        description="Upstream page offset for the next ranked batch after a 10-page pool",
-    ),
 ):
     """Return public live rooms from one provider or an aggregate provider group."""
     included_tags: List[str] = []
@@ -487,8 +474,8 @@ async def discover_models(
         )
     if source_key == "bilibili" and not effective_parent_area_id:
         effective_parent_area_id = DEFAULT_BILIBILI_PARENT_AREA_ID
-    # B1: accept source_default / viewers_desc; legacy viewers|newest unchanged.
-    # Default query remains sort=viewers → same page_local viewers ordering as before.
+    # Accept source_default / viewers_desc; viewers|newest keep prior meaning.
+    # Default query remains sort=viewers → page-local viewers ordering.
     sort_mode = normalize_sort_param(sort)
 
     # Provider availability / disabled_providers first (shared gate; no second copy).
@@ -523,35 +510,6 @@ async def discover_models(
                 reason_code=reason_code,
                 sort_mode=sort_mode,
             )
-
-    # Coerce Query defaults when discover_models is called directly in unit tests.
-    if isinstance(ranking_start_page, (int, float, str)) and not isinstance(ranking_start_page, bool):
-        try:
-            ranking_start_i = max(1, int(ranking_start_page))
-        except (TypeError, ValueError):
-            ranking_start_i = 1
-    else:
-        ranking_start_i = 1
-
-    # Global viewers_desc frozen pools disabled (too slow for All/CB/Bili).
-    # is_global_ranking_eligible is a kill switch; keep the branch for re-enable.
-    if is_global_ranking_eligible(source, sort, search_lower):
-        return await handle_global_ranking_discover(
-            source=source,
-            page=page,
-            limit=limit,
-            pool_id=pool_id,
-            gender=gender,
-            search=search_lower,
-            tags=included_tags,
-            sort="viewers_desc",
-            chaturbate_api=_chaturbate_api,
-            providers=providers,
-            db=_db,
-            ranking_start_page=ranking_start_i,
-            game_id=effective_game_id,
-            parent_area_id=effective_parent_area_id,
-        )
 
     # Aggregate / multi-source: skip providers that cannot serve this gender.
     providers = filter_providers_for_gender(providers, gender)
@@ -783,10 +741,7 @@ async def discover_models(
         if result is not None
     )
 
-    # Global ranking: a room with 900 viewers must rank above a room with
-    # 50 viewers, regardless of source. In the aggregated view, take page 1
-    # de chaque provider avec assez de candidats pour trier puis paginer ici.
-    # B1: viewers + viewers_desc keep this path; source_default preserves encounter
+    # viewers / viewers_desc keep this path; source_default preserves encounter
     # order (opt-in only — default query sort=viewers is unchanged).
     ranked_items = [item for group in grouped_items for item in group]
     # Browse-only: drop zero-viewer padding when any live room exists.
@@ -829,7 +784,7 @@ async def discover_models(
 
         ranked_items.sort(key=_search_rank_key, reverse=True)
     else:
-        # Legacy sort=viewers, sort=viewers_desc, and any unknown → prior viewers desc.
+        # sort=viewers, sort=viewers_desc, and any unknown → viewers descending.
         ranked_items.sort(key=lambda m: int(m.get("viewers") or 0), reverse=True)
 
     if explicit_source:

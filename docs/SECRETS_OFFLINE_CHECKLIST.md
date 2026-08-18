@@ -24,4 +24,4 @@ Restore into `/opt/hxylive/data` before `install-vps.sh`.
 
 ## Mac
 
-Video directory, outbound proxy URL if required (often `http://127.0.0.1:7897`), Google Chrome installed.
+Video directory, outbound proxy URL if required (often `http://127.0.0.1:7897`), Google Chrome installed. Optional Chrome download folder if it is not the HXYLIVE library directory.
