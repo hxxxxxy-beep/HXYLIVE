@@ -41,7 +41,7 @@ Canonical install path: `/opt/hxylive`.
 - `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` (if Twitch discovery is needed)
 - Whether to restore a `/opt/hxylive/data` backup or start empty
 - Mac video directory (default `~/Movies/HXYLIVE`)
-- Optional Chrome download directory if it is not the library folder (otherwise the helper reads Chrome Preferences + `~/Downloads`)
+- Optional `--chrome-download-dir` only if Chrome Preferences cannot be read (otherwise the helper watches Chrome's configured download folder, then files into the Mac video library)
 - Whether this Mac must use outbound proxy `http://127.0.0.1:7897`
 
 Secrets are never in Git. See [`SECRETS_OFFLINE_CHECKLIST.md`](SECRETS_OFFLINE_CHECKLIST.md).
@@ -76,7 +76,7 @@ git clone https://github.com/hxxxxxy-beep/HXYLIVE.git && cd HXYLIVE
 curl --noproxy '*' http://127.0.0.1:17899/health
 ```
 
-Omit `--proxy` and the `*_proxy` exports if unused. Pass `--chrome-download-dir` only when Chrome saves files outside the library folder and Chrome Preferences cannot be read. Confirm the Media page can request a Mac folder scan.
+Omit `--proxy` and the `*_proxy` exports if unused. Pass `--chrome-download-dir` only when Chrome Preferences cannot be read. Confirm the Media page lists Mac files (the helper pushes scans to the VPS, so this still works when the browser cannot reach localhost).
 
 ## Validate before declaring success
 

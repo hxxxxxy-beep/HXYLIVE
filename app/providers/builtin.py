@@ -48,6 +48,7 @@ class ChaturbateProvider(BaseProvider):
     domains = ("chaturbate.com", "highwebmedia.com", "mmcdn.com")
     capabilities = ProviderCapabilities(
         can_login=True,
+        can_password_login=True,
         can_follow=True,
         can_sync_following=True,
         can_discover=True,

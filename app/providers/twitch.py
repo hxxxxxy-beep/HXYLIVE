@@ -5,8 +5,10 @@ from typing import Any, Optional
 
 import aiohttp
 
-from .base import ProviderCapabilities, ProviderStatus
+from .base import ProviderAuthError, ProviderCapabilities, ProviderError, ProviderStatus
+from .sessions import ProviderSessionStore
 from .ytdlp import YtDlpProvider
+from ..core.config import HXYLIVE_MAX_FOLLOW_SYNC_ITEMS
 from ..core.http_client import aiohttp_client_session, aiohttp_request_kwargs
 
 _TWITCH_UNIQUE_POOL_TTL_SECONDS = 45
@@ -21,6 +23,13 @@ class TwitchProvider(YtDlpProvider):
     SEARCH_CHANNELS_URL = "https://api.twitch.tv/helix/search/channels"
     USERS_URL = "https://api.twitch.tv/helix/users"
     FOLLOWERS_URL = "https://api.twitch.tv/helix/channels/followers"
+    FOLLOWED_CHANNELS_URL = "https://api.twitch.tv/helix/channels/followed"
+    GQL_URL = "https://gql.twitch.tv/gql"
+    WEB_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
+    _SESSION_HINT = (
+        "Twitch password login is not supported; import a browser session that includes "
+        "the auth-token cookie"
+    )
 
     def __init__(
         self,
@@ -39,6 +48,9 @@ class TwitchProvider(YtDlpProvider):
         )
 
         self.capabilities = ProviderCapabilities(
+            can_login=True,
+            can_follow=True,
+            can_sync_following=True,
             can_discover=True,
             can_stream=True,
             can_record=True,
@@ -309,29 +321,41 @@ class TwitchProvider(YtDlpProvider):
 
     async def _helix_users(
         self,
-        logins: list[str],
+        logins: Optional[list[str]] = None,
         retry_auth: bool = True,
+        ids: Optional[list[str]] = None,
     ) -> list[dict[str, Any]]:
-        normalized = [str(login or "").strip().lower() for login in logins if str(login or "").strip()]
-        if not normalized:
+        normalized = [
+            str(login or "").strip().lower()
+            for login in (logins or [])
+            if str(login or "").strip()
+        ]
+        id_values = [str(uid or "").strip() for uid in (ids or []) if str(uid or "").strip()]
+        if not normalized and not id_values:
             return []
         token = await self._get_app_token()
         headers = {
             "Authorization": f"Bearer {token}",
             "Client-Id": self.client_id,
         }
+        params: list[tuple[str, str]] = [("login", login) for login in normalized[:100]]
+        params.extend(("id", uid) for uid in id_values[: max(0, 100 - len(params))])
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp_client_session(timeout=timeout) as session:
             async with session.get(
                 self.USERS_URL,
-                params=[("login", login) for login in normalized[:100]],
+                params=params,
                 headers=headers,
                 **aiohttp_request_kwargs(),
             ) as response:
                 payload = await response.json(content_type=None)
                 if response.status == 401 and retry_auth:
                     await self._get_app_token(force_refresh=True)
-                    return await self._helix_users(normalized, retry_auth=False)
+                    return await self._helix_users(
+                        normalized,
+                        retry_auth=False,
+                        ids=id_values,
+                    )
                 if response.status >= 400:
                     detail = payload.get("message") if isinstance(payload, dict) else str(payload)
                     raise RuntimeError(f"Twitch users lookup failed ({response.status}): {detail}")
@@ -999,3 +1023,413 @@ class TwitchProvider(YtDlpProvider):
                 "provider_status": "error",
                 "provider_detail": str(exc),
             }
+
+    async def login(self, username: str, password: str) -> dict[str, object]:
+        _ = username, password
+        return {"success": False, "error": self._SESSION_HINT}
+
+    async def logout(self) -> dict[str, object]:
+        if self.session_store:
+            await self.session_store.clear(self.source_type)
+        return {"success": True}
+
+    async def import_session(
+        self,
+        username: Optional[str] = None,
+        cookie_header: Optional[str] = None,
+        cookies: Optional[list[dict[str, Any]]] = None,
+        local_storage: Optional[list[dict[str, Any]]] = None,
+        user_agent: Optional[str] = None,
+        x_bc: Optional[str] = None,
+    ) -> dict[str, object]:
+        _ = user_agent, x_bc
+        incoming = self._merge_session_cookies(cookie_header, cookies)
+        cookie_map = ProviderSessionStore.cookie_map(incoming)
+        if not cookie_map.get("auth-token"):
+            return {
+                "success": False,
+                "error": "Twitch auth-token cookie is required for session import",
+            }
+        if not self.session_store:
+            return {"success": False, "error": "Session store unavailable"}
+        await self.session_store.save(
+            source_type=self.source_type,
+            username=(username or cookie_map.get("login") or "").strip() or None,
+            is_logged_in=True,
+            cookies=incoming,
+            local_storage=list(local_storage or []),
+            last_error=None,
+        )
+        try:
+            current = await self._twitch_current_user()
+        except ProviderAuthError as exc:
+            await self.session_store.save(
+                source_type=self.source_type,
+                username=(username or cookie_map.get("login") or "").strip() or None,
+                is_logged_in=False,
+                cookies=incoming,
+                local_storage=list(local_storage or []),
+                last_error=str(exc),
+            )
+            return {"success": False, "error": str(exc)}
+        resolved = str(
+            current.get("login") or username or cookie_map.get("login") or ""
+        ).strip()
+        await self.session_store.save(
+            source_type=self.source_type,
+            username=resolved or None,
+            is_logged_in=True,
+            cookies=incoming,
+            local_storage=list(local_storage or []),
+            last_error=None,
+        )
+        return {"success": True, "username": resolved, "importedSession": True}
+
+    async def sync_following(self) -> list[dict[str, object]]:
+        current = await self._twitch_current_user()
+        user_id = str(current.get("id") or "").strip()
+        items = await self._twitch_sync_helix_followed(user_id)
+        if items is None:
+            items = await self._twitch_sync_gql_followed()
+        items = await self._hydrate_followed_live_status(items)
+        items.sort(
+            key=lambda item: (
+                not bool(item.get("is_online")),
+                -int(item.get("viewers") or 0),
+                str(item.get("username") or "").lower(),
+            )
+        )
+        return items[:HXYLIVE_MAX_FOLLOW_SYNC_ITEMS]
+
+    async def follow(self, username: str) -> dict[str, object]:
+        return await self._twitch_follow_gql(username, follow=True)
+
+    async def unfollow(self, username: str) -> dict[str, object]:
+        return await self._twitch_follow_gql(username, follow=False)
+
+    async def is_following(self, username: str) -> bool:
+        current = await self._twitch_current_user()
+        user_id = str(current.get("id") or "").strip()
+        target = await self._twitch_user_id(username)
+        if not user_id or not target:
+            return False
+        try:
+            payload = await self._user_helix_get(
+                self.FOLLOWED_CHANNELS_URL,
+                params={"user_id": user_id, "broadcaster_id": target, "first": "1"},
+            )
+        except ProviderAuthError:
+            raise
+        except Exception:
+            return False
+        rows = payload.get("data") if isinstance(payload, dict) else []
+        return bool(rows)
+
+    def _merge_session_cookies(
+        self,
+        cookie_header: Optional[str],
+        cookies: Optional[list[dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
+        incoming = ProviderSessionStore.parse_cookie_header(
+            cookie_header,
+            domain=".twitch.tv",
+        )
+        by_name = {str(item.get("name")): item for item in incoming if item.get("name")}
+        for cookie in cookies or []:
+            if not isinstance(cookie, dict) or not cookie.get("name"):
+                continue
+            item = dict(cookie)
+            item.setdefault("domain", ".twitch.tv")
+            item.setdefault("path", "/")
+            by_name[str(item["name"])] = item
+        return list(by_name.values())
+
+    async def _session_cookie_map(self) -> dict[str, str]:
+        if not self.session_store:
+            return {}
+        try:
+            state = await self.session_store.get(self.source_type)
+        except Exception:
+            return {}
+        return ProviderSessionStore.cookie_map(state.get("cookies"))
+
+    async def _session_cookie_header(self) -> str:
+        if not self.session_store:
+            return ""
+        try:
+            return await self.session_store.cookie_header(self.source_type)
+        except Exception:
+            return ""
+
+    async def _user_oauth_token(self) -> str:
+        token = (await self._session_cookie_map()).get("auth-token") or ""
+        if not token:
+            raise ProviderAuthError("Twitch login required")
+        return token
+
+    async def _user_helix_get(
+        self,
+        url: str,
+        *,
+        params: Optional[dict[str, str]] = None,
+    ) -> dict[str, Any]:
+        token = await self._user_oauth_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Client-Id": self.WEB_CLIENT_ID,
+            "Cookie": await self._session_cookie_header(),
+        }
+        timeout = aiohttp.ClientTimeout(total=20)
+        async with aiohttp_client_session(timeout=timeout) as session:
+            async with session.get(
+                url,
+                params=params,
+                headers=headers,
+                **aiohttp_request_kwargs(),
+            ) as response:
+                payload = await response.json(content_type=None)
+                status = response.status
+        if status in {401, 403}:
+            raise ProviderAuthError("Twitch login required")
+        if status >= 400:
+            detail = payload.get("message") if isinstance(payload, dict) else str(payload)
+            raise ProviderError(f"Twitch Helix failed ({status}): {detail}")
+        return payload if isinstance(payload, dict) else {}
+
+    async def _twitch_gql(self, query: str, variables: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        token = await self._user_oauth_token()
+        headers = {
+            "Authorization": f"OAuth {token}",
+            "Client-Id": self.WEB_CLIENT_ID,
+            "Content-Type": "application/json",
+            "Cookie": await self._session_cookie_header(),
+        }
+        timeout = aiohttp.ClientTimeout(total=20)
+        body = {"query": query, "variables": variables or {}}
+        async with aiohttp_client_session(timeout=timeout) as session:
+            async with session.post(
+                self.GQL_URL,
+                json=body,
+                headers=headers,
+                **aiohttp_request_kwargs(),
+            ) as response:
+                payload = await response.json(content_type=None)
+                status = response.status
+        if status in {401, 403}:
+            raise ProviderAuthError("Twitch login required")
+        if status >= 400:
+            raise ProviderError(f"Twitch GQL failed ({status})")
+        if not isinstance(payload, dict):
+            raise ProviderError("Twitch GQL returned invalid payload")
+        errors = payload.get("errors")
+        if isinstance(errors, list) and errors:
+            message = str((errors[0] or {}).get("message") or "Twitch GQL error")
+            lowered = message.lower()
+            if "auth" in lowered or "login" in lowered or "unauthorized" in lowered:
+                raise ProviderAuthError(message)
+            raise ProviderError(message)
+        data = payload.get("data")
+        return data if isinstance(data, dict) else {}
+
+    async def _twitch_current_user(self) -> dict[str, Any]:
+        try:
+            payload = await self._user_helix_get(self.USERS_URL)
+            rows = payload.get("data") if isinstance(payload.get("data"), list) else []
+            if rows and isinstance(rows[0], dict) and rows[0].get("id"):
+                return rows[0]
+        except ProviderAuthError:
+            raise
+        except Exception:
+            pass
+        data = await self._twitch_gql("query { currentUser { id login displayName } }")
+        current = data.get("currentUser")
+        if not isinstance(current, dict) or not current.get("id"):
+            raise ProviderAuthError("Twitch login required")
+        return current
+
+    async def _twitch_user_id(self, username: str) -> str:
+        login = str(username or "").strip().lstrip("@")
+        if not login:
+            return ""
+        users = await self._helix_users([login])
+        if users:
+            return str(users[0].get("id") or "").strip()
+        return ""
+
+    async def _twitch_sync_helix_followed(self, user_id: str) -> Optional[list[dict[str, object]]]:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return None
+        items: list[dict[str, object]] = []
+        cursor = None
+        for _ in range(50):
+            params = {"user_id": uid, "first": "100"}
+            if cursor:
+                params["after"] = cursor
+            try:
+                payload = await self._user_helix_get(self.FOLLOWED_CHANNELS_URL, params=params)
+            except ProviderAuthError:
+                raise
+            except Exception:
+                return None if not items else items
+            for row in payload.get("data") or []:
+                if not isinstance(row, dict):
+                    continue
+                login = str(row.get("broadcaster_login") or "").strip()
+                if not login:
+                    continue
+                items.append({
+                    "username": login,
+                    "display_name": str(row.get("broadcaster_name") or login),
+                    "user_id": str(row.get("broadcaster_id") or ""),
+                    "is_online": False,
+                    "viewers": 0,
+                    "source_type": "twitch",
+                    "room_status": "offline",
+                    "channel_url": f"https://www.twitch.tv/{login}",
+                })
+            if len(items) >= HXYLIVE_MAX_FOLLOW_SYNC_ITEMS:
+                return items[:HXYLIVE_MAX_FOLLOW_SYNC_ITEMS]
+            cursor = str((payload.get("pagination") or {}).get("cursor") or "").strip() or None
+            if not cursor:
+                break
+        return items
+
+    async def _twitch_sync_gql_followed(self) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        cursor = None
+        query = """
+        query HXYLIVEFollowing($cursor: Cursor) {
+          currentUser {
+            follows(first: 100, after: $cursor) {
+              edges {
+                node {
+                  id
+                  login
+                  displayName
+                  profileImageURL(width: 300)
+                  stream {
+                    viewersCount
+                    previewImageURL(width: 440, height: 248)
+                  }
+                }
+              }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }
+        """
+        for _ in range(50):
+            data = await self._twitch_gql(query, {"cursor": cursor})
+            current = data.get("currentUser") if isinstance(data.get("currentUser"), dict) else {}
+            follows = current.get("follows") if isinstance(current.get("follows"), dict) else {}
+            edges = follows.get("edges") or []
+            for edge in edges:
+                node = (edge or {}).get("node") if isinstance(edge, dict) else None
+                if not isinstance(node, dict):
+                    continue
+                login = str(node.get("login") or "").strip()
+                if not login:
+                    continue
+                stream = node.get("stream") if isinstance(node.get("stream"), dict) else {}
+                is_online = bool(stream)
+                face = str(node.get("profileImageURL") or "").strip()
+                preview = str(stream.get("previewImageURL") or "").strip()
+                items.append({
+                    "username": login,
+                    "display_name": str(node.get("displayName") or login),
+                    "user_id": str(node.get("id") or ""),
+                    "is_online": is_online,
+                    "viewers": int(stream.get("viewersCount") or 0) if is_online else 0,
+                    "thumbnail_url": preview or face,
+                    "profile_image_url": face,
+                    "source_type": "twitch",
+                    "room_status": "public" if is_online else "offline",
+                    "channel_url": f"https://www.twitch.tv/{login}",
+                })
+            if len(items) >= HXYLIVE_MAX_FOLLOW_SYNC_ITEMS:
+                return items[:HXYLIVE_MAX_FOLLOW_SYNC_ITEMS]
+            page_info = follows.get("pageInfo") if isinstance(follows.get("pageInfo"), dict) else {}
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = str(page_info.get("endCursor") or "").strip() or None
+            if not cursor:
+                break
+        return items
+
+    async def _hydrate_followed_live_status(
+        self,
+        items: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        if not items:
+            return items
+        user_ids = [
+            str(item.get("user_id") or "").strip()
+            for item in items
+            if str(item.get("user_id") or "").strip()
+        ]
+        streams_by_id: dict[str, dict[str, Any]] = {}
+        try:
+            for offset in range(0, len(user_ids), 100):
+                streams_by_id.update(
+                    await self._helix_streams_by_user_ids(user_ids[offset:offset + 100])
+                )
+        except Exception:
+            streams_by_id = {}
+        missing_logins = [
+            str(item.get("username") or "")
+            for item in items
+            if not str(item.get("profile_image_url") or "").strip()
+        ]
+        try:
+            users = await self._helix_users(missing_logins)
+        except Exception:
+            users = []
+        users_by_login = {
+            str(user.get("login") or "").lower(): user for user in users
+        }
+        hydrated: list[dict[str, object]] = []
+        for item in items:
+            row = dict(item)
+            uid = str(row.get("user_id") or "").strip()
+            stream = streams_by_id.get(uid)
+            if stream:
+                live = self._stream_model(stream)
+                live["profile_image_url"] = row.get("profile_image_url") or live.get("profile_image_url")
+                hydrated.append(live)
+                continue
+            login = str(row.get("username") or "").lower()
+            user = users_by_login.get(login) or {}
+            if user.get("profile_image_url") and not row.get("profile_image_url"):
+                row["profile_image_url"] = user.get("profile_image_url")
+            hydrated.append(row)
+        return hydrated
+
+    async def _twitch_follow_gql(self, username: str, *, follow: bool) -> dict[str, object]:
+        target_id = await self._twitch_user_id(username)
+        if not target_id:
+            raise ProviderError(f"Twitch user not found: {username}")
+        mutation = (
+            """
+            mutation HXYLIVEFollow($id: ID!) {
+              followUser(input: {disableNotifications: false, targetID: $id}) {
+                follow { user { id login } }
+              }
+            }
+            """
+            if follow
+            else """
+            mutation HXYLIVEUnfollow($id: ID!) {
+              unfollowUser(input: {targetID: $id}) {
+                follow { user { id } }
+              }
+            }
+            """
+        )
+        await self._twitch_gql(mutation, {"id": target_id})
+        return {
+            "success": True,
+            "remote": True,
+            "provider": "twitch",
+            "username": str(username or "").strip(),
+        }

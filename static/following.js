@@ -834,9 +834,9 @@ function showNotification(message, type) {
 // ============================================
 // Auto-refresh live thumbnails
 // ============================================
-// /api/following reads from the SQLite DB, which is only refreshed every
-// 5 minutes by sync_following_task. Do not rely on that API for fresh
-// URLs. Strategy:
+// /api/following reads from the SQLite DB, which is refreshed by
+// sync_following_task for every provider that supports remote sync.
+// Do not rely on that API for fresh URLs. Strategy:
 //   - Chaturbate (mmcdn / highwebmedia): local cache-bust via ?_cb=now;
 //     the CDN ignores unsigned query params and re-serves the current
 //     image.
