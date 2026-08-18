@@ -31,11 +31,9 @@ The helper is a Python standard-library HTTP service bound only to `127.0.0.1:17
 
 - accepts requests only from the configured HXYLIVE web origin;
 - scans the configured Mac video directory;
-- reports downloaded recording IDs and file sizes to the VPS on a short heartbeat;
-- retrieves short-lived download jobs from the VPS (browser dispatch or helper poll);
+- reports downloaded recording IDs and file sizes;
+- retrieves short-lived download jobs from the VPS;
 - opens each selected download URL in Google Chrome.
-
-The Media page can show Mac files, open or delete them, and start downloads even when the browser cannot reach localhost (Chrome local-network restrictions, or with the system proxy off). If `--proxy` is configured and that proxy is down, the helper reaches the VPS directly.
 
 The helper does not expose a LAN listener and does not store VPS credentials.
 

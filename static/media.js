@@ -34,7 +34,6 @@
     resolvingProfileImage: false,
     localSessionId: '',
     macHelperAvailable: false,
-    macHelperDirect: false,
     syncStatuses: {},
     syncScannedAt: 0,
     deviceFilter: 'all',
@@ -46,10 +45,6 @@
   var MEDIA_PAGE_SIZE = 12;
   var PROFILE_PAGE_ROWS = 2;
   var MAC_HELPER_BASE = 'http://127.0.0.1:17899';
-  var fileWatchTimer = null;
-  var fileWatchTick = null;
-  var fileWatchGeneration = 0;
-  var FILE_WATCH_MAX_MS = 6 * 60 * 60 * 1000;
 
   var PROFILE_SOURCE_OPTIONS = [
     { value: 'twitch', label: 'Twitch', domains: ['twitch.tv', 'www.twitch.tv'] },
@@ -237,7 +232,7 @@
   }
 
   function macThumbUrl(file, relative) {
-    if (!state.localSessionId || !state.macHelperDirect) return '';
+    if (!state.localSessionId) return '';
     var params = new URLSearchParams();
     params.set('localSessionId', state.localSessionId);
     if (relative) params.set('relativePath', relative);
@@ -2042,19 +2037,25 @@
     if (!state.localSessionId || !state.macHelperAvailable) {
       throw new Error('Start the HXYLIVE Mac helper to delete Mac copies');
     }
-    var res = await helperPostOrQueue('/delete', '/api/mac/helper/delete', {
-      localSessionId: state.localSessionId,
-      items: macItems.map(function(item) {
-        return {
-          relativePath: item.macRelativePath || '',
-          recordingId: item.recordingId || ''
-        };
-      })
-    }, 2500);
-    if (res && res.status === 'queued') {
-      await new Promise(function(resolve) { setTimeout(resolve, 1500); });
+    var res = await fetch(MAC_HELPER_BASE + '/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        localSessionId: state.localSessionId,
+        items: macItems.map(function(item) {
+          return {
+            relativePath: item.macRelativePath || '',
+            recordingId: item.recordingId || ''
+          };
+        })
+      }),
+      cache: 'no-store'
+    });
+    var data = await res.json().catch(function() { return {}; });
+    if (!res.ok) {
+      throw new Error(data.error || data.detail || 'Mac delete failed');
     }
-    return res;
+    return data;
   }
 
   function buildDeletePlan(items) {
@@ -2647,87 +2648,6 @@
     rebuildVisibleItems();
   }
 
-  function applyMacSnapshot(snapshot, direct) {
-    state.localSessionId = snapshot.localSessionId || '';
-    state.macHelperAvailable = !!state.localSessionId;
-    state.macHelperDirect = !!direct;
-    state.macFiles = Array.isArray(snapshot.files) ? snapshot.files : [];
-    state.syncStatuses = snapshot.statuses || {};
-    state.syncScannedAt = snapshot.scannedAt || Math.floor(Date.now() / 1000);
-  }
-
-  function helperRequestTimeout(ms) {
-    var controller = new AbortController();
-    var timer = setTimeout(function() { controller.abort(); }, ms);
-    return {
-      signal: controller.signal,
-      clear: function() { clearTimeout(timer); }
-    };
-  }
-
-  async function fetchLocalMacScan(timeoutMs) {
-    var timeout = helperRequestTimeout(timeoutMs || 2000);
-    try {
-      var localRes = await fetch(MAC_HELPER_BASE + '/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-        cache: 'no-store',
-        signal: timeout.signal
-      });
-      if (!localRes.ok) throw new Error('Local Mac helper did not accept the scan');
-      return await localRes.json();
-    } finally {
-      timeout.clear();
-    }
-  }
-
-  async function helperPostLocal(path, body, timeoutMs) {
-    var timeout = helperRequestTimeout(timeoutMs || 2000);
-    try {
-      var res = await fetch(MAC_HELPER_BASE + path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        cache: 'no-store',
-        signal: timeout.signal
-      });
-      var data = await res.json().catch(function() { return {}; });
-      if (!res.ok) throw new Error(data.error || 'Mac helper request failed');
-      return data;
-    } finally {
-      timeout.clear();
-    }
-  }
-
-  async function helperPostOrQueue(path, vpsPath, body, timeoutMs) {
-    try {
-      return await helperPostLocal(path, body, timeoutMs);
-    } catch (_) {
-      var res = await fetch(vpsPath, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        cache: 'no-store'
-      });
-      var data = await res.json().catch(function() { return {}; });
-      if (!res.ok) {
-        throw new Error(data.detail || data.error || 'Start the HXYLIVE Mac helper, then retry');
-      }
-      return data;
-    }
-  }
-
-  async function fetchVpsMacSnapshot() {
-    var remoteRes = await fetch('/api/mac/helper/snapshot', { cache: 'no-store' });
-    if (!remoteRes.ok) throw new Error('VPS could not read the Mac helper snapshot');
-    var remote = await remoteRes.json();
-    if (!remote || !remote.available || !remote.localSessionId) {
-      throw new Error('Start the HXYLIVE Mac helper, then rescan');
-    }
-    return remote;
-  }
-
   async function scanMacAndRefresh(silent, forceLiveRefresh) {
     if (state.macScanInProgress) {
       if (!silent) showToast('Mac folder scan already running', 'info');
@@ -2742,68 +2662,50 @@
     }
     if (status) status.textContent = 'Scanning local video folder...';
     try {
-      var localCount = 0;
-      var compared = null;
-      try {
-        var snapshot = await fetchLocalMacScan();
-        var compareRes = await fetch('/api/mac/sync-snapshot', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            localSessionId: snapshot.localSessionId,
-            files: Array.isArray(snapshot.files) ? snapshot.files : []
-          }),
-          cache: 'no-store'
-        });
-        if (!compareRes.ok) {
-          var compareDetail = 'VPS could not compare the Mac folder';
-          try {
-            var compareBody = await compareRes.json();
-            if (compareBody && compareBody.detail) compareDetail = String(compareBody.detail);
-          } catch (_) {}
-          throw new Error(compareDetail);
-        }
-        compared = await compareRes.json();
-        applyMacSnapshot({
+      var localRes = await fetch(MAC_HELPER_BASE + '/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+        cache: 'no-store'
+      });
+      if (!localRes.ok) throw new Error('Local Mac helper did not accept the scan');
+      var snapshot = await localRes.json();
+      state.localSessionId = snapshot.localSessionId;
+      state.macHelperAvailable = true;
+      state.macFiles = Array.isArray(snapshot.files) ? snapshot.files : [];
+      var localCount = state.macFiles.length;
+      var compareRes = await fetch('/api/mac/sync-snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           localSessionId: snapshot.localSessionId,
-          files: snapshot.files,
-          statuses: compared.statuses,
-          scannedAt: compared.scannedAt
-        }, true);
-        localCount = state.macFiles.length;
-      } catch (_) {
-        var remote = null;
-        var lastErr = null;
-        var attempt = 0;
-        while (attempt < 3) {
-          try {
-            remote = await fetchVpsMacSnapshot();
-            break;
-          } catch (err) {
-            lastErr = err;
-            attempt += 1;
-            if (attempt < 3) {
-              await new Promise(function(resolve) { setTimeout(resolve, 1000); });
-            }
-          }
-        }
-        if (!remote) throw lastErr || new Error('Start the HXYLIVE Mac helper, then rescan');
-        applyMacSnapshot(remote, false);
-        localCount = state.macFiles.length;
-        compared = remote;
+          files: state.macFiles
+        }),
+        cache: 'no-store'
+      });
+      if (!compareRes.ok) {
+        var compareDetail = 'VPS could not compare the Mac folder';
+        try {
+          var compareBody = await compareRes.json();
+          if (compareBody && compareBody.detail) compareDetail = String(compareBody.detail);
+        } catch (_) {}
+        throw new Error(compareDetail);
       }
+      var compared = await compareRes.json();
+      state.syncStatuses = compared.statuses || {};
+      state.syncScannedAt = compared.scannedAt || Math.floor(Date.now() / 1000);
+      // Update badges immediately so Refresh cannot look like a no-op.
       applySyncStatusesToItems();
       if (!silent) {
         showToast(
           'Mac scan: ' + localCount + ' local file(s) → ' +
-          (compared && compared.synced || 0) + ' on Mac, ' +
-          (compared && compared.notSynced || 0) + ' missing',
+          (compared.synced || 0) + ' on Mac, ' +
+          (compared.notSynced || 0) + ' missing',
           'success'
         );
       }
     } catch (e) {
       state.macHelperAvailable = false;
-      state.macHelperDirect = false;
       state.localSessionId = '';
       state.macFiles = [];
       state.syncStatuses = {};
@@ -2863,12 +2765,19 @@
     }
     var reveal = !!(options && options.reveal);
     try {
-      var data = await helperPostOrQueue('/open', '/api/mac/helper/open', {
-        localSessionId: state.localSessionId,
-        relativePath: item.macRelativePath || '',
-        recordingId: item.recordingId || '',
-        reveal: reveal
-      }, 2500);
+      var res = await fetch(MAC_HELPER_BASE + '/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          localSessionId: state.localSessionId,
+          relativePath: item.macRelativePath || '',
+          recordingId: item.recordingId || '',
+          reveal: reveal
+        }),
+        cache: 'no-store'
+      });
+      var data = await res.json().catch(function() { return {}; });
+      if (!res.ok) throw new Error(data.error || (reveal ? 'Could not show folder' : 'Could not open local file'));
       var shown = data.relativePath || item.macRelativePath || item.filename;
       showToast((reveal ? 'Showed in Finder: ' : 'Opened on Mac: ') + shown, 'success');
     } catch (e) {
@@ -2919,117 +2828,6 @@
     rebuildVisibleItems();
   }
 
-  function itemStillWaitingForMac(id) {
-    return (state.syncStatuses || {})[id] !== 'synced';
-  }
-
-  function recordingIdsForMediaItems(ids) {
-    var found = [];
-    (ids || []).forEach(function(id) {
-      var item = itemById(id);
-      var rid = String((item && item.recordingId) || '').trim();
-      if (rid) found.push(rid);
-    });
-    return found;
-  }
-
-  function stopWatchingFiledDownloads() {
-    fileWatchGeneration += 1;
-    fileWatchTick = null;
-    if (fileWatchTimer) {
-      clearTimeout(fileWatchTimer);
-      fileWatchTimer = null;
-    }
-  }
-
-  async function refreshMacListFromHelperSnapshot() {
-    var remote = await fetchVpsMacSnapshot();
-    applyMacSnapshot(remote, state.macHelperDirect);
-    applySyncStatusesToItems();
-    updateMacToolbar();
-  }
-
-  async function refreshMacListAfterFile() {
-    try {
-      var snapshot = await fetchLocalMacScan(15000);
-      var compareRes = await fetch('/api/mac/sync-snapshot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          localSessionId: snapshot.localSessionId,
-          files: Array.isArray(snapshot.files) ? snapshot.files : []
-        }),
-        cache: 'no-store'
-      });
-      if (!compareRes.ok) throw new Error('VPS could not compare the Mac folder');
-      var compared = await compareRes.json();
-      applyMacSnapshot({
-        localSessionId: snapshot.localSessionId,
-        files: snapshot.files,
-        statuses: compared.statuses,
-        scannedAt: compared.scannedAt
-      }, true);
-    } catch (_) {
-      await refreshMacListFromHelperSnapshot();
-    }
-    applySyncStatusesToItems();
-    updateMacToolbar();
-  }
-
-  function watchFiledDownloads(ids) {
-    stopWatchingFiledDownloads();
-    var generation = fileWatchGeneration;
-    var startedAt = Date.now();
-    var recordingIds = recordingIdsForMediaItems(ids);
-
-    async function tick() {
-      if (generation !== fileWatchGeneration) return;
-      if (Date.now() - startedAt > FILE_WATCH_MAX_MS) {
-        fileWatchTick = null;
-        fileWatchTimer = null;
-        return;
-      }
-      var filedNow = false;
-      if (recordingIds.length && state.localSessionId) {
-        var timeout = helperRequestTimeout(28000);
-        try {
-          var res = await fetch(MAC_HELPER_BASE + '/wait-filed', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              localSessionId: state.localSessionId,
-              recordingIds: recordingIds,
-              timeoutMs: 25000
-            }),
-            cache: 'no-store',
-            signal: timeout.signal
-          });
-          var data = await res.json().catch(function() { return {}; });
-          filedNow = !!(res.ok && data && Array.isArray(data.filed) && data.filed.length);
-        } catch (_) {
-          filedNow = false;
-        } finally {
-          timeout.clear();
-        }
-      }
-      if (generation !== fileWatchGeneration) return;
-      if (filedNow) {
-        try { await refreshMacListAfterFile(); } catch (_) {}
-        if (generation !== fileWatchGeneration) return;
-        if (!ids.filter(itemStillWaitingForMac).length) {
-          fileWatchTick = null;
-          fileWatchTimer = null;
-          showToast(ids.length + ' video(s) filed on Mac', 'success');
-          return;
-        }
-      }
-      fileWatchTimer = setTimeout(tick, filedNow ? 200 : 800);
-    }
-
-    fileWatchTick = tick;
-    fileWatchTimer = setTimeout(tick, 200);
-  }
-
   async function downloadSelectedToMac() {
     var ids = Object.keys(state.selectedItemIds).filter(function(id) {
       return itemIsDownloadable(itemById(id));
@@ -3045,27 +2843,25 @@
       });
       if (!createRes.ok) throw new Error('Could not create the VPS download batch');
       var job = await createRes.json();
-      var timeout = helperRequestTimeout(2500);
-      try {
-        await fetch(MAC_HELPER_BASE + '/dispatch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            localSessionId: state.localSessionId,
-            jobId: job.jobId,
-            vpsBase: window.location.origin
-          }),
-          cache: 'no-store',
-          signal: timeout.signal
-        });
-      } catch (_) {
-        // Helper claims the job from the VPS when the browser cannot reach localhost.
-      } finally {
-        timeout.clear();
+      var dispatchRes = await fetch(MAC_HELPER_BASE + '/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          localSessionId: state.localSessionId,
+          jobId: job.jobId,
+          vpsBase: window.location.origin
+        })
+      });
+      if (!dispatchRes.ok) {
+        var dispatchErr = 'Mac helper could not start the Chrome download batch';
+        try {
+          var dispatchBody = await dispatchRes.json();
+          if (dispatchBody && dispatchBody.error) dispatchErr = dispatchBody.error;
+        } catch (_) {}
+        throw new Error(dispatchErr);
       }
       showToast(ids.length + ' download(s) started in Chrome; helper will file them', 'success');
       state.selectedItemIds = {};
-      watchFiledDownloads(ids);
     } catch (e) {
       showToast(e.message || 'Download batch failed', 'error');
     }
@@ -3217,11 +3013,6 @@
     }
     var downloadSelected = $('mediaDownloadSelectedBtn');
     if (downloadSelected) downloadSelected.addEventListener('click', downloadSelectedToMac);
-    document.addEventListener('visibilitychange', function() {
-      if (document.hidden || !fileWatchTick) return;
-      if (fileWatchTimer) clearTimeout(fileWatchTimer);
-      fileWatchTimer = setTimeout(fileWatchTick, 400);
-    });
     var deleteSelected = $('mediaDeleteSelectedBtn');
     if (deleteSelected) deleteSelected.addEventListener('click', openBatchDeleteConfirm);
     var selectAll = $('mediaSelectAllBtn');

@@ -186,15 +186,11 @@ function providerAccountControls(source, status, caps) {
   var connected = status.isLoggedIn === true;
   var savedCredentials = status.hasSavedCredentials === true;
   var canSync = connected && caps.can_sync_following === true;
-  var canPasswordLogin = caps.can_password_login === true;
   var username = status.username ? '<div class="provider-muted">Connected as ' + escapeHtml(status.username) + '</div>' : '';
   var savedMessage = providerSavedCredentialsMessage(status);
   var error = providerStatusError(status);
-  var sessionHint = (!connected && !canPasswordLogin)
-    ? '<div class="provider-muted">Import a browser session to connect this account and sync follows.</div>'
-    : '';
   var loginForm = '';
-  if (!connected && canPasswordLogin) {
+  if (!connected) {
     loginForm =
       '<form class="provider-login" onsubmit="loginProvider(event, \'' + escapeHtml(source) + '\')">' +
         '<input name="username" type="text" autocomplete="username" placeholder="Username" value="' + escapeHtml(status.username || '') + '">' +
@@ -217,7 +213,6 @@ function providerAccountControls(source, status, caps) {
 
   return '<div class="provider-account">' +
     username +
-    sessionHint +
     (savedMessage ? '<div class="provider-muted">' + escapeHtml(savedMessage) + '</div>' : '') +
     (error ? '<div class="provider-error">' + escapeHtml(error) + '</div>' : '') +
     loginForm +
@@ -1217,8 +1212,8 @@ var testDefinitions = [
       var remoteSync = providers.filter(function(provider) {
         return provider.capabilities && provider.capabilities.can_sync_following;
       }).length;
-      assertTest(accountLogin === 4, 'All four providers should expose account login');
-      assertTest(remoteSync === 4, 'All four providers should expose remote sync');
+      assertTest(accountLogin === 2, 'Chaturbate and Stripchat should expose account login');
+      assertTest(remoteSync === 2, 'Chaturbate and Stripchat should expose remote sync');
       return testResult('pass', providers.length + ' providers - ' + discoverable + ' discoverable - ' + localFollow + ' follow - ' + remoteSync + ' sync');
     }
   },

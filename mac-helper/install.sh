@@ -133,7 +133,7 @@ printf 'Allowed web origin: %s\n' "$ORIGIN"
 if [ -n "$CHROME_DOWNLOAD_DIR" ]; then
     printf 'Chrome download watch dir: %s\n' "$CHROME_DOWNLOAD_DIR"
 else
-    printf 'Chrome download watch dir: Chrome Preferences\n'
+    printf 'Chrome download watch dir: auto (Chrome Preferences + ~/Downloads)\n'
 fi
 printf 'Log: %s\n' "$LOG_PATH"
 case "$VIDEO_DIR" in

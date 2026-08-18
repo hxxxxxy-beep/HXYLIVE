@@ -11,7 +11,6 @@ import shutil
 import time
 from datetime import datetime
 import secrets
-import threading
 import hashlib
 import http.client
 import socket as raw_socket
@@ -108,15 +107,6 @@ MAC_DOWNLOAD_LINK_TTL_SECONDS = max(
     300,
     int(os.getenv("HXYLIVE_DOWNLOAD_LINK_TTL_SECONDS", "21600")),
 )
-MAC_HELPER_SNAPSHOT_TTL_SECONDS = max(
-    15,
-    int(os.getenv("HXYLIVE_MAC_HELPER_SNAPSHOT_TTL_SECONDS", "45")),
-)
-MAC_HELPER_COMMAND_TTL_SECONDS = max(
-    15,
-    int(os.getenv("HXYLIVE_MAC_HELPER_COMMAND_TTL_SECONDS", "60")),
-)
-MAC_HELPER_COMMAND_MAX_QUEUED = 20
 BABEPEDIA_BASE_URL = "https://www.babepedia.com"
 BABEPEDIA_USER_AGENT = os.getenv(
     "HXYLIVE_PROFILE_IMAGE_USER_AGENT",
@@ -265,13 +255,7 @@ def is_authenticated(session_token: Optional[str]) -> bool:
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     # Public routes (no authentication needed)
-    public_paths = [
-        "/login",
-        "/api/login",
-        "/favicon.ico",
-        "/api/mac/helper/heartbeat",
-        "/api/mac/helper/commands",
-    ]
+    public_paths = ["/login", "/api/login", "/favicon.ico"]
     public_prefixes = [
         "/static/",
         "/api/proxy/hls/",
@@ -2832,32 +2816,12 @@ class MacDownloadJobBody(BaseModel):
     itemIds: list[str]
 
 
-class MacHelperOpenBody(BaseModel):
-    localSessionId: str
-    relativePath: Optional[str] = None
-    recordingId: Optional[str] = None
-    reveal: bool = False
-
-
-class MacHelperDeleteItem(BaseModel):
-    relativePath: Optional[str] = None
-    recordingId: Optional[str] = None
-
-
-class MacHelperDeleteBody(BaseModel):
-    localSessionId: str
-    items: list[MacHelperDeleteItem]
-
-
 class MediaBatchDeleteBody(BaseModel):
     itemIds: list[str]
 
 
 _mac_download_jobs: dict[str, dict[str, Any]] = {}
 _mac_download_tokens: dict[str, dict[str, Any]] = {}
-_mac_helper_snapshot: dict[str, Any] = {}
-_mac_helper_commands: dict[str, dict[str, Any]] = {}
-_mac_state_lock = threading.Lock()
 _media_profile_live_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
@@ -3417,39 +3381,6 @@ async def provider_status(source_type: str):
     }
 
 
-def _schedule_following_sync(source_type: str) -> None:
-    source_type = _normalize_source_type(source_type) or ""
-    if not source_type:
-        return
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-    loop.create_task(_background_following_sync(source_type))
-
-
-async def _background_following_sync(source_type: str) -> None:
-    try:
-        provider = _provider_for(source_type)
-        if not getattr(provider.capabilities, "can_sync_following", False):
-            return
-        items = await asyncio.wait_for(provider.sync_following(), timeout=60)
-        stored = await store_provider_following(db, source_type, items)
-        if stored.get("trusted"):
-            await db.reconcile_model_sources_from_followed()
-            logger.info(
-                "Following synced after account connect",
-                source_type=source_type,
-                count=stored.get("synced") or 0,
-            )
-    except Exception as exc:
-        logger.debug(
-            "Following sync after account connect skipped",
-            source_type=source_type,
-            error=str(exc),
-        )
-
-
 @app.post("/api/providers/{source_type}/login")
 async def provider_login(source_type: str, body: ProviderLoginBody):
     source_type = _normalize_source_type(source_type) or ""
@@ -3494,7 +3425,6 @@ async def provider_login(source_type: str, body: ProviderLoginBody):
             },
         )
     result["savedCredentials"] = saved_credentials
-    _schedule_following_sync(source_type)
     return result
 
 
@@ -3553,7 +3483,6 @@ async def provider_import_session(source_type: str, body: ProviderSessionBody):
             status_code=401,
             content={"success": False, "detail": result.get("error", "Session import failed")},
         )
-    _schedule_following_sync(source_type)
     return result
 
 
@@ -5331,35 +5260,23 @@ def _prune_mac_download_state() -> None:
     ]
     for job_id in expired_jobs:
         _mac_download_jobs.pop(job_id, None)
-    expired_commands = [
-        command_id
-        for command_id, command in _mac_helper_commands.items()
-        if float(command.get("expiresAt") or 0) <= now
-    ]
-    for command_id in expired_commands:
-        _mac_helper_commands.pop(command_id, None)
 
 
-def _mac_session_matches(left: str, right: str) -> bool:
-    a = str(left or "")
-    b = str(right or "")
-    if len(a) != len(b):
-        return False
-    return secrets.compare_digest(a, b)
+@app.post("/api/mac/sync-snapshot")
+async def compare_mac_sync_snapshot(body: MacSyncSnapshotBody):
+    """Compare one fresh Mac folder scan with the current VPS video library."""
+    local_session_id = (body.localSessionId or "").strip()
+    if not local_session_id or len(local_session_id) > 200:
+        raise HTTPException(status_code=400, detail="Invalid local session")
 
-
-async def _compare_mac_local_files(
-    local_session_id: str,
-    files: list[MacLocalFileBody],
-) -> dict[str, Any]:
     by_recording_id = {
         str(file.recordingId): int(file.size)
-        for file in files
+        for file in body.files
         if file.recordingId
     }
     by_filename_size = {
         (Path(file.filename).name, int(file.size))
-        for file in files
+        for file in body.files
         if file.filename and int(file.size) >= 0
     }
     items = [
@@ -5392,194 +5309,7 @@ async def _compare_mac_local_files(
         "synced": synced,
         "incomplete": incomplete,
         "notSynced": max(0, len(items) - synced - incomplete),
-        "files": [
-            {
-                "recordingId": str(file.recordingId or ""),
-                "filename": str(file.filename or ""),
-                "size": int(file.size),
-            }
-            for file in files
-        ],
     }
-
-
-def _claim_ready_mac_jobs(local_session_id: str) -> list[dict[str, Any]]:
-    _prune_mac_download_state()
-    claimed: list[dict[str, Any]] = []
-    with _mac_state_lock:
-        for job in _mac_download_jobs.values():
-            if str(job.get("status") or "") != "ready":
-                continue
-            if not _mac_session_matches(str(job.get("localSessionId") or ""), local_session_id):
-                continue
-            job["status"] = "claimed"
-            claimed.append(job)
-    return claimed
-
-
-def _claim_mac_download_job(job_id: str, local_session_id: str) -> dict[str, Any]:
-    _prune_mac_download_state()
-    with _mac_state_lock:
-        job = _mac_download_jobs.get(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Download job not found or expired")
-        if not _mac_session_matches(str(job.get("localSessionId") or ""), local_session_id):
-            raise HTTPException(status_code=403, detail="Download job belongs to another local session")
-        status = str(job.get("status") or "")
-        if status != "ready":
-            raise HTTPException(status_code=409, detail="Download job already claimed")
-        job["status"] = "claimed"
-        return job
-
-
-def _queue_mac_helper_command(local_session_id: str, command_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-    local_session_id = (local_session_id or "").strip()
-    if not local_session_id or len(local_session_id) > 200:
-        raise HTTPException(status_code=400, detail="Invalid local session")
-    with _mac_state_lock:
-        snap = dict(_mac_helper_snapshot)
-    last_seen = float(snap.get("lastSeenAt") or 0)
-    if (
-        not snap
-        or (time.time() - last_seen) > MAC_HELPER_SNAPSHOT_TTL_SECONDS
-        or not _mac_session_matches(str(snap.get("localSessionId") or ""), local_session_id)
-    ):
-        raise HTTPException(status_code=503, detail="Start the HXYLIVE Mac helper, then retry")
-    command = {
-        "commandId": secrets.token_urlsafe(18),
-        "localSessionId": local_session_id,
-        "type": command_type,
-        "status": "queued",
-        "createdAt": int(time.time()),
-        "expiresAt": time.time() + MAC_HELPER_COMMAND_TTL_SECONDS,
-    }
-    command.update(payload)
-    with _mac_state_lock:
-        _prune_mac_download_state()
-        queued = [
-            existing
-            for existing in _mac_helper_commands.values()
-            if str(existing.get("status") or "") == "queued"
-            and _mac_session_matches(str(existing.get("localSessionId") or ""), local_session_id)
-        ]
-        if len(queued) >= MAC_HELPER_COMMAND_MAX_QUEUED:
-            raise HTTPException(status_code=429, detail="Too many pending Mac helper commands")
-        _mac_helper_commands[command["commandId"]] = command
-    return {
-        "status": "queued",
-        "commandId": command["commandId"],
-        "type": command_type,
-    }
-
-
-def _claim_ready_mac_commands(local_session_id: str) -> list[dict[str, Any]]:
-    _prune_mac_download_state()
-    claimed: list[dict[str, Any]] = []
-    with _mac_state_lock:
-        for command in _mac_helper_commands.values():
-            if str(command.get("status") or "") != "queued":
-                continue
-            if not _mac_session_matches(str(command.get("localSessionId") or ""), local_session_id):
-                continue
-            command["status"] = "claimed"
-            claimed.append(dict(command))
-    return claimed
-
-
-@app.post("/api/mac/sync-snapshot")
-async def compare_mac_sync_snapshot(body: MacSyncSnapshotBody):
-    """Compare one fresh Mac folder scan with the current VPS video library."""
-    local_session_id = (body.localSessionId or "").strip()
-    if not local_session_id or len(local_session_id) > 200:
-        raise HTTPException(status_code=400, detail="Invalid local session")
-    compared = await _compare_mac_local_files(local_session_id, body.files)
-    compared.pop("files", None)
-    return compared
-
-
-@app.post("/api/mac/helper/heartbeat")
-async def mac_helper_heartbeat(body: MacSyncSnapshotBody):
-    """Accept a Mac Helper folder snapshot and return any unclaimed download jobs."""
-    local_session_id = (body.localSessionId or "").strip()
-    if not local_session_id or len(local_session_id) > 200:
-        raise HTTPException(status_code=400, detail="Invalid local session")
-    compared = await _compare_mac_local_files(local_session_id, body.files)
-    pending = _claim_ready_mac_jobs(local_session_id)
-    pending_commands = _claim_ready_mac_commands(local_session_id)
-    with _mac_state_lock:
-        _mac_helper_snapshot.clear()
-        _mac_helper_snapshot.update(compared)
-        _mac_helper_snapshot["lastSeenAt"] = time.time()
-    return {
-        "localSessionId": compared["localSessionId"],
-        "scannedAt": compared["scannedAt"],
-        "pendingJobs": pending,
-        "pendingCommands": pending_commands,
-    }
-
-
-@app.get("/api/mac/helper/snapshot")
-async def mac_helper_snapshot():
-    """Latest helper scan for the Media page when the browser cannot reach localhost."""
-    with _mac_state_lock:
-        snap = dict(_mac_helper_snapshot)
-    last_seen = float(snap.get("lastSeenAt") or 0)
-    if not snap or (time.time() - last_seen) > MAC_HELPER_SNAPSHOT_TTL_SECONDS:
-        return {"available": False}
-    return {
-        "available": True,
-        "localSessionId": snap.get("localSessionId") or "",
-        "files": snap.get("files") or [],
-        "scannedAt": snap.get("scannedAt") or 0,
-        "statuses": snap.get("statuses") or {},
-        "synced": snap.get("synced") or 0,
-        "incomplete": snap.get("incomplete") or 0,
-        "notSynced": snap.get("notSynced") or 0,
-        "totalVideos": snap.get("totalVideos") or 0,
-    }
-
-
-@app.get("/api/mac/helper/commands")
-async def claim_mac_helper_commands(localSessionId: str):
-    """Mac Helper polls this when the browser cannot reach localhost."""
-    local_session_id = (localSessionId or "").strip()
-    if not local_session_id or len(local_session_id) > 200:
-        raise HTTPException(status_code=400, detail="Invalid local session")
-    return {"pendingCommands": _claim_ready_mac_commands(local_session_id)}
-
-
-@app.post("/api/mac/helper/open")
-async def queue_mac_helper_open(body: MacHelperOpenBody):
-    """Queue a local open/reveal when Chrome cannot fetch 127.0.0.1:17899."""
-    relative = str(body.relativePath or "").strip()
-    recording_id = str(body.recordingId or "").strip()
-    if not relative and not recording_id:
-        raise HTTPException(status_code=400, detail="relativePath or recordingId required")
-    queued = _queue_mac_helper_command(body.localSessionId, "open", {
-        "relativePath": relative,
-        "recordingId": recording_id,
-        "reveal": bool(body.reveal),
-    })
-    queued["relativePath"] = relative
-    queued["reveal"] = bool(body.reveal)
-    return queued
-
-
-@app.post("/api/mac/helper/delete")
-async def queue_mac_helper_delete(body: MacHelperDeleteBody):
-    """Queue Mac-folder deletes when Chrome cannot fetch 127.0.0.1:17899."""
-    items = []
-    for item in body.items or []:
-        relative = str(item.relativePath or "").strip()
-        recording_id = str(item.recordingId or "").strip()
-        if not relative and not recording_id:
-            continue
-        items.append({"relativePath": relative, "recordingId": recording_id})
-    if not items or len(items) > 100:
-        raise HTTPException(status_code=400, detail="Select between 1 and 100 Mac videos")
-    queued = _queue_mac_helper_command(body.localSessionId, "delete", {"items": items})
-    queued["deletedCount"] = len(items)
-    return queued
 
 
 @app.post("/api/mac/download-jobs")
@@ -5658,7 +5388,16 @@ async def create_mac_download_job(body: MacDownloadJobBody, request: Request):
 
 @app.get("/api/mac/download-jobs/{job_id}")
 async def get_mac_download_job(job_id: str, localSessionId: str):
-    return _claim_mac_download_job(job_id, localSessionId)
+    _prune_mac_download_state()
+    job = _mac_download_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Download job not found or expired")
+    if not secrets.compare_digest(
+        str(job.get("localSessionId") or ""),
+        str(localSessionId or ""),
+    ):
+        raise HTTPException(status_code=403, detail="Download job belongs to another local session")
+    return job
 
 
 @app.get("/api/mac/download/{token}")
@@ -8374,58 +8113,38 @@ async def cleanup_old_recordings_task():
             await asyncio.sleep(3600)
 
 
-async def sync_following_task(source_type: Optional[str] = None):
-    """Background task: sync remote follows for every capable provider."""
+async def sync_following_task(source_type: str = "chaturbate"):
+    """Background task: sync provider follows through the provider abstraction."""
+    source_type = _normalize_source_type(source_type) or "chaturbate"
     while True:
         try:
-            await asyncio.sleep(300)
+            await asyncio.sleep(300)  # 5 minutes
 
-            providers = []
-            requested = _normalize_source_type(source_type) if source_type else ""
-            if requested:
-                if requested in _available_source_types():
-                    providers = [_provider_for(requested)]
-            else:
-                providers = list(provider_registry.all())
+            if source_type not in _available_source_types():
+                continue
+            provider = _provider_for(source_type)
+            if not getattr(provider.capabilities, "can_sync_following", False):
+                continue
 
-            for provider in providers:
-                provider_source = _normalize_source_type(
-                    getattr(provider, "source_type", "")
+            models = await provider.sync_following()
+            stored = await store_provider_following(db, source_type, models)
+            if not stored["trusted"]:
+                logger.warning(
+                    "Following sync skipped",
+                    task="following-sync",
+                    source_type=source_type,
+                    reason=stored["skippedReason"],
                 )
-                if not provider_source:
-                    continue
-                if not getattr(provider.capabilities, "can_sync_following", False):
-                    continue
-                try:
-                    models = await provider.sync_following()
-                    stored = await store_provider_following(db, provider_source, models)
-                except ProviderAuthError:
-                    continue
-                except Exception as exc:
-                    logger.error(
-                        "Following sync error",
-                        task="following-sync",
-                        source_type=provider_source,
-                        error=str(exc),
-                    )
-                    continue
-                if not stored["trusted"]:
-                    logger.warning(
-                        "Following sync skipped",
-                        task="following-sync",
-                        source_type=provider_source,
-                        reason=stored["skippedReason"],
-                    )
-                    continue
-                if stored["synced"]:
-                    repaired = await db.reconcile_model_sources_from_followed()
-                    logger.debug(
-                        "Following synced",
-                        count=stored["synced"],
-                        repaired_sources=repaired,
-                        source_type=provider_source,
-                        task="following-sync",
-                    )
+                continue
+            if stored["synced"]:
+                repaired = await db.reconcile_model_sources_from_followed()
+                logger.debug(
+                    "Following synced",
+                    count=stored["synced"],
+                    repaired_sources=repaired,
+                    source_type=source_type,
+                    task="following-sync",
+                )
         except Exception as e:
             logger.error("Following sync error", task="following-sync", error=str(e))
             await asyncio.sleep(60)
@@ -8516,10 +8235,6 @@ async def startup_event():
     from .resolvers.chaturbate import set_chaturbate_api
     set_chaturbate_api(cb_api)
 
-    for provider in provider_registry.all():
-        if getattr(provider.capabilities, "can_sync_following", False):
-            _schedule_following_sync(provider.source_type)
-
     # Start background tasks
     asyncio.create_task(monitor_models_task(
         db,
@@ -8530,7 +8245,7 @@ async def startup_event():
     ))
     asyncio.create_task(ffmpeg_watchdog_task())
     asyncio.create_task(auto_record_task())
-    asyncio.create_task(sync_following_task())
+    asyncio.create_task(sync_following_task("chaturbate"))
     asyncio.create_task(cleanup_old_recordings_task())
     asyncio.create_task(auto_convert_recordings_task(db, OUTPUT_DIR, manager, FFMPEG_PATH))
     if MEDIA_IMPORTS_ENABLED:

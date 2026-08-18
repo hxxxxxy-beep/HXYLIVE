@@ -36,7 +36,6 @@ class YtDlpProvider(BaseProvider):
         fallback_caps = getattr(browser_fallback, "capabilities", None)
         self.capabilities = ProviderCapabilities(
             can_login=bool(fallback_caps and fallback_caps.can_login),
-            can_password_login=bool(fallback_caps and fallback_caps.can_password_login),
             can_follow=bool(fallback_caps and fallback_caps.can_follow),
             can_sync_following=bool(fallback_caps and fallback_caps.can_sync_following),
             can_discover=bool(fallback_caps and fallback_caps.can_discover),

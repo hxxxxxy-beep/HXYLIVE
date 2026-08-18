@@ -30,10 +30,9 @@ class ProviderRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(registry.has("cam4"))
         self.assertTrue(registry.get("chaturbate").capabilities.can_login)
         self.assertTrue(registry.get("chaturbate").capabilities.can_sync_following)
-        self.assertTrue(registry.get("twitch").capabilities.can_login)
-        self.assertTrue(registry.get("twitch").capabilities.can_follow)
-        self.assertTrue(registry.get("twitch").capabilities.can_sync_following)
-        self.assertFalse(registry.get("twitch").capabilities.can_password_login)
+        self.assertFalse(registry.get("twitch").capabilities.can_login)
+        self.assertFalse(registry.get("twitch").capabilities.can_follow)
+        self.assertFalse(registry.get("twitch").capabilities.can_sync_following)
         self.assertTrue(registry.get("twitch").capabilities.can_discover)
         self.assertTrue(registry.get("twitch").capabilities.can_stream)
         self.assertTrue(registry.get("twitch").capabilities.can_record)
@@ -43,12 +42,6 @@ class ProviderRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(stripchat.capabilities.can_follow)
         self.assertTrue(stripchat.capabilities.can_sync_following)
         self.assertTrue(stripchat.capabilities.can_login)
-        self.assertTrue(stripchat.capabilities.can_password_login)
-        bilibili = registry.get("bilibili")
-        self.assertTrue(bilibili.capabilities.can_login)
-        self.assertTrue(bilibili.capabilities.can_follow)
-        self.assertTrue(bilibili.capabilities.can_sync_following)
-        self.assertFalse(bilibili.capabilities.can_password_login)
 
 
 class BuiltinProviderDiscoverTests(unittest.IsolatedAsyncioTestCase):

@@ -29,7 +29,6 @@ class ProviderInteractionRequired(ProviderError):
 @dataclass(frozen=True)
 class ProviderCapabilities:
     can_login: bool = False
-    can_password_login: bool = False
     can_follow: bool = False
     can_sync_following: bool = False
     can_discover: bool = False
