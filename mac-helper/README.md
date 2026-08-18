@@ -16,7 +16,7 @@ Optional proxy (required on the development Mac that uses port 7897):
   --proxy http://127.0.0.1:7897
 ```
 
-The helper watches Google Chrome's configured download folder. Matching completed files are moved into `video_dir/<streamer>/`. The video library is the destination, not an extra watch folder. Pass `--chrome-download-dir` only when Chrome Preferences cannot be read. `~/Downloads` is not watched unless it is Chrome's current download folder.
+If Chrome saves files outside the library folder, pass `--chrome-download-dir`. Otherwise the helper watches Chrome Preferences plus `~/Downloads`.
 
 Verify:
 

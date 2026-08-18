@@ -2,7 +2,6 @@ import importlib.util
 import json
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -100,11 +99,8 @@ class MacHelperLedgerTests(unittest.TestCase):
         self.assertEqual(self.helper._load_ledger(), [])
 
     def test_relocate_moves_chrome_file_into_streamer_folder(self):
-        chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
-        chrome_dir.mkdir()
-        self.helper.chrome_download_dir_arg = str(chrome_dir)
         chrome_name = "hxylive-rec_clip__pending.mp4"
-        source = chrome_dir / chrome_name
+        source = self.video_dir / chrome_name
         source.write_bytes(b"0123456789ab")
         item = {
             "recordingId": "rec_clip",
@@ -112,8 +108,7 @@ class MacHelperLedgerTests(unittest.TestCase):
             "relativePath": "model/2026-08-02.mp4",
             "size": 12,
         }
-        with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[]):
-            self.helper._relocate_one(item)
+        self.helper._relocate_one(item)
         dest = self.video_dir / "model" / "2026-08-02.mp4"
         self.assertFalse(source.exists())
         self.assertTrue(dest.exists())
@@ -121,26 +116,6 @@ class MacHelperLedgerTests(unittest.TestCase):
         scanned = self.helper.scan()
         self.assertEqual(scanned["files"][0]["recordingId"], "rec_clip")
         self.assertEqual(scanned["files"][0]["filename"], "model/2026-08-02.mp4")
-
-    def test_wait_for_filed_returns_after_relocate(self):
-        chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
-        chrome_dir.mkdir()
-        self.helper.chrome_download_dir_arg = str(chrome_dir)
-        chrome_name = "hxylive-rec_clip__pending.mp4"
-        (chrome_dir / chrome_name).write_bytes(b"0123456789ab")
-        item = {
-            "recordingId": "rec_clip",
-            "downloadFilename": chrome_name,
-            "relativePath": "model/2026-08-02.mp4",
-            "size": 12,
-        }
-        with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[]):
-            waiter = threading.Thread(target=self.helper._relocate_one, args=(item,))
-            waiter.start()
-            result = self.helper.wait_for_filed(["rec_clip"], 2.0)
-            waiter.join(timeout=2.0)
-        self.assertIn("rec_clip", result["filed"])
-        self.assertEqual(result["remaining"], [])
 
     def test_relocate_picks_up_chrome_download_outside_video_dir(self):
         chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
@@ -155,8 +130,7 @@ class MacHelperLedgerTests(unittest.TestCase):
             "relativePath": "model/2026-08-02.mp4",
             "size": 12,
         }
-        with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[]):
-            self.helper._relocate_one(item)
+        self.helper._relocate_one(item)
         dest = self.video_dir / "model" / "2026-08-02.mp4"
         self.assertFalse(source.exists())
         self.assertTrue(dest.exists())
@@ -166,25 +140,9 @@ class MacHelperLedgerTests(unittest.TestCase):
         chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
         chrome_dir.mkdir()
         self.helper.chrome_download_dir_arg = str(chrome_dir)
-        with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[]):
-            watched = self.helper._download_watch_dirs()
-        self.assertEqual(watched, [chrome_dir.resolve()])
-        self.assertNotIn(self.video_dir.resolve(), watched)
-
-    def test_download_watch_dirs_are_chrome_prefs_only(self):
-        chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
-        chrome_dir.mkdir()
-        with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[chrome_dir]):
-            watched = self.helper._download_watch_dirs()
-        self.assertEqual(watched, [chrome_dir.resolve()])
-        self.assertNotIn(self.video_dir.resolve(), watched)
-        self.assertNotIn((Path.home() / "Downloads").resolve(), watched)
-
-    def test_download_watch_dirs_empty_when_chrome_prefs_empty(self):
-        with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[]):
-            watched = self.helper._download_watch_dirs()
-        self.assertEqual(watched, [])
-        self.assertNotIn(self.video_dir.resolve(), watched)
+        watched = self.helper._download_watch_dirs()
+        self.assertEqual(watched[0], chrome_dir.resolve())
+        self.assertIn(self.video_dir.resolve(), watched)
 
     def test_open_local_rejects_path_escape(self):
         with self.assertRaises(ValueError):
