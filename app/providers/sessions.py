@@ -48,6 +48,50 @@ class ProviderSessionStore:
         return self.cookies_to_header(state.get("cookies"))
 
     @staticmethod
+    def parse_cookie_header(
+        cookie_header: Optional[str],
+        *,
+        domain: str = "",
+        path: str = "/",
+    ) -> list[dict[str, Any]]:
+        cookies: list[dict[str, Any]] = []
+        for part in str(cookie_header or "").split(";"):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            name, value = part.split("=", 1)
+            name = name.strip()
+            if not name:
+                continue
+            item: dict[str, Any] = {
+                "name": name,
+                "value": value.strip(),
+                "path": path,
+            }
+            if domain:
+                item["domain"] = domain
+            cookies.append(item)
+        return cookies
+
+    @staticmethod
+    def cookie_map(cookies: Any) -> dict[str, str]:
+        values: dict[str, str] = {}
+        if isinstance(cookies, dict):
+            for key, value in cookies.items():
+                if key:
+                    values[str(key)] = "" if value is None else str(value)
+            return values
+        if isinstance(cookies, list):
+            for cookie in cookies:
+                if not isinstance(cookie, dict):
+                    continue
+                name = cookie.get("name")
+                value = cookie.get("value")
+                if name and value is not None:
+                    values[str(name)] = str(value)
+        return values
+
+    @staticmethod
     def cookies_to_header(cookies: Any) -> str:
         if not cookies:
             return ""

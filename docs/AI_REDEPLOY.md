@@ -76,7 +76,7 @@ git clone https://github.com/hxxxxxy-beep/HXYLIVE.git && cd HXYLIVE
 curl --noproxy '*' http://127.0.0.1:17899/health
 ```
 
-Omit `--proxy` and the `*_proxy` exports if unused. Pass `--chrome-download-dir` only when Chrome Preferences cannot be read. Confirm the Media page can request a Mac folder scan.
+Omit `--proxy` and the `*_proxy` exports if unused. Pass `--chrome-download-dir` only when Chrome Preferences cannot be read. Confirm the Media page lists Mac files (the helper pushes scans to the VPS, so this still works when the browser cannot reach localhost).
 
 ## Validate before declaring success
 

@@ -15,8 +15,10 @@ from typing import Any, Optional
 
 import aiohttp
 
-from .base import ProviderCapabilities, ProviderStatus
+from .base import ProviderAuthError, ProviderCapabilities, ProviderError, ProviderStatus
+from .sessions import ProviderSessionStore
 from .ytdlp import YtDlpProvider
+from ..core.config import HXYLIVE_MAX_FOLLOW_SYNC_ITEMS
 from ..core.http_client import aiohttp_client_session, aiohttp_request_kwargs
 from ..discover_category_catalog import DEFAULT_BILIBILI_PARENT_AREA_ID
 from ..services.bilibili_categories import (
@@ -36,6 +38,15 @@ _ONLINE_GOLD_RANK_URL = (
 )
 _MASTER_INFO_URL = "https://api.live.bilibili.com/live_user/v1/Master/info"
 _FOLLOWER_STAT_URL = "https://api.bilibili.com/x/relation/stat"
+_NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
+_RELATION_URL = "https://api.bilibili.com/x/relation"
+_RELATION_MODIFY_URL = "https://api.bilibili.com/x/relation/modify"
+_RELATION_FOLLOWINGS_URL = "https://api.bilibili.com/x/relation/followings"
+_LIVE_FOLLOWING_URL = "https://api.live.bilibili.com/xlive/web-ucenter/user/following"
+_BILI_SESSION_HINT = (
+    "Bilibili password login is not supported; import a browser session that includes "
+    "SESSDATA and bili_jct cookies"
+)
 _UNIQUE_POOL_TTL_SECONDS = 45.0
 _MAX_UPSTREAM_GETS_PER_CALL = 8
 _UNIQUE_POOL_MAX_KEYS = 32
@@ -71,6 +82,9 @@ class BilibiliProvider(YtDlpProvider):
             session_store,
         )
         self.capabilities = ProviderCapabilities(
+            can_login=True,
+            can_follow=True,
+            can_sync_following=True,
             can_discover=True,
             can_stream=True,
             can_record=True,
@@ -1274,3 +1288,372 @@ class BilibiliProvider(YtDlpProvider):
             parent_area_id=parent_area_id,
             area_id=area_id,
         )
+
+    async def login(self, username: str, password: str) -> dict[str, object]:
+        _ = username, password
+        return {"success": False, "error": _BILI_SESSION_HINT}
+
+    async def logout(self) -> dict[str, object]:
+        if self.session_store:
+            await self.session_store.clear(self.source_type)
+        return {"success": True}
+
+    async def import_session(
+        self,
+        username: Optional[str] = None,
+        cookie_header: Optional[str] = None,
+        cookies: Optional[list[dict[str, Any]]] = None,
+        local_storage: Optional[list[dict[str, Any]]] = None,
+        user_agent: Optional[str] = None,
+        x_bc: Optional[str] = None,
+    ) -> dict[str, object]:
+        _ = user_agent, x_bc
+        incoming = self._merge_session_cookies(cookie_header, cookies)
+        cookie_map = ProviderSessionStore.cookie_map(incoming)
+        if not cookie_map.get("SESSDATA"):
+            return {
+                "success": False,
+                "error": "Bilibili SESSDATA cookie is required for session import",
+            }
+        if not cookie_map.get("bili_jct"):
+            return {
+                "success": False,
+                "error": "Bilibili bili_jct cookie is required for session import",
+            }
+        if not self.session_store:
+            return {"success": False, "error": "Session store unavailable"}
+        await self.session_store.save(
+            source_type=self.source_type,
+            username=(username or "").strip() or None,
+            is_logged_in=True,
+            cookies=incoming,
+            local_storage=list(local_storage or []),
+            last_error=None,
+        )
+        try:
+            nav = await self._bili_nav()
+        except ProviderAuthError as exc:
+            await self.session_store.save(
+                source_type=self.source_type,
+                username=(username or "").strip() or None,
+                is_logged_in=False,
+                cookies=incoming,
+                local_storage=list(local_storage or []),
+                last_error=str(exc),
+            )
+            return {"success": False, "error": str(exc)}
+        resolved = str(nav.get("uname") or username or "").strip()
+        await self.session_store.save(
+            source_type=self.source_type,
+            username=resolved or None,
+            is_logged_in=True,
+            cookies=incoming,
+            local_storage=list(local_storage or []),
+            last_error=None,
+        )
+        return {"success": True, "username": resolved, "importedSession": True}
+
+    async def sync_following(self) -> list[dict[str, object]]:
+        nav = await self._bili_nav()
+        items = await self._bili_sync_live_following()
+        if items is None:
+            items = await self._bili_sync_relation_followings(str(nav.get("mid") or ""))
+        items.sort(
+            key=lambda item: (
+                not bool(item.get("is_online")),
+                -int(item.get("viewers") or 0),
+                str(item.get("username") or ""),
+            )
+        )
+        return items
+
+    async def follow(self, username: str) -> dict[str, object]:
+        return await self._bili_relation_modify(username, follow=True)
+
+    async def unfollow(self, username: str) -> dict[str, object]:
+        return await self._bili_relation_modify(username, follow=False)
+
+    async def is_following(self, username: str) -> bool:
+        uid = await self._bili_uid_for_room(username)
+        if not uid:
+            return False
+        try:
+            payload = await self._auth_request_json(
+                "GET",
+                _RELATION_URL,
+                params={"fid": uid},
+                label="Bilibili relation",
+            )
+        except ProviderAuthError:
+            raise
+        except Exception:
+            return False
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        attribute = int(data.get("attribute") or 0)
+        return attribute in {1, 2, 6}
+
+    def _merge_session_cookies(
+        self,
+        cookie_header: Optional[str],
+        cookies: Optional[list[dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
+        incoming = ProviderSessionStore.parse_cookie_header(
+            cookie_header,
+            domain=".bilibili.com",
+        )
+        by_name = {str(item.get("name")): item for item in incoming if item.get("name")}
+        for cookie in cookies or []:
+            if not isinstance(cookie, dict) or not cookie.get("name"):
+                continue
+            item = dict(cookie)
+            item.setdefault("domain", ".bilibili.com")
+            item.setdefault("path", "/")
+            by_name[str(item["name"])] = item
+        return list(by_name.values())
+
+    async def _session_cookie_header(self) -> str:
+        if not self.session_store:
+            return ""
+        try:
+            return await self.session_store.cookie_header(self.source_type)
+        except Exception:
+            return ""
+
+    async def _session_cookie_map(self) -> dict[str, str]:
+        if not self.session_store:
+            return {}
+        try:
+            state = await self.session_store.get(self.source_type)
+        except Exception:
+            return {}
+        return ProviderSessionStore.cookie_map(state.get("cookies"))
+
+    async def _auth_request_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Optional[dict[str, str]] = None,
+        data: Optional[dict[str, str]] = None,
+        label: str = "Bilibili request",
+        ok_codes: Optional[set[int]] = None,
+    ) -> dict[str, Any]:
+        cookie_header = await self._session_cookie_header()
+        if not cookie_header:
+            raise ProviderAuthError("Bilibili login required")
+        headers = {
+            "Cookie": cookie_header,
+            "Referer": "https://live.bilibili.com/",
+            "Origin": "https://live.bilibili.com",
+        }
+        timeout = aiohttp.ClientTimeout(total=20)
+        request_kwargs = aiohttp_request_kwargs()
+        async with aiohttp_client_session(
+            timeout=timeout,
+            headers=self._request_headers(headers),
+        ) as session:
+            async with session.request(
+                method.upper(),
+                url,
+                params=params,
+                data=data,
+                **request_kwargs,
+            ) as response:
+                raw = await response.text()
+                status = response.status
+        if status in {401, 403}:
+            raise ProviderAuthError("Bilibili login required")
+        if status >= 400 or _HTML_DOC_RE.search(raw or ""):
+            raise ProviderError(f"{label} blocked ({status})")
+        try:
+            payload = json.loads(raw)
+        except Exception as exc:
+            raise ProviderError(f"{label} returned non-JSON") from exc
+        if not isinstance(payload, dict):
+            raise ProviderError(f"{label} returned invalid payload")
+        code = int(payload.get("code") or 0)
+        if code in {-101, -111}:
+            raise ProviderAuthError(
+                str(payload.get("message") or payload.get("msg") or "Bilibili login required")
+            )
+        allowed = ok_codes or {0}
+        if code not in allowed:
+            raise ProviderError(
+                str(payload.get("message") or payload.get("msg") or f"{label} rejected ({code})")
+            )
+        return payload
+
+    async def _bili_nav(self) -> dict[str, Any]:
+        payload = await self._auth_request_json("GET", _NAV_URL, label="Bilibili nav")
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        if not data.get("isLogin") and not data.get("mid"):
+            raise ProviderAuthError("Bilibili login required")
+        return data
+
+    async def _bili_uid_for_room(self, room_key: str) -> str:
+        meta = await self.resolve_watch_meta(room_key)
+        uid = str(meta.get("userId") or "").strip()
+        if uid.isdigit():
+            return uid
+        info = await self._room_get_info(room_key)
+        uid = str((info or {}).get("uid") or "").strip()
+        return uid if uid.isdigit() else ""
+
+    async def _bili_relation_modify(self, username: str, *, follow: bool) -> dict[str, object]:
+        uid = await self._bili_uid_for_room(username)
+        if not uid:
+            raise ProviderError(f"Bilibili room not found: {username}")
+        csrf = (await self._session_cookie_map()).get("bili_jct") or ""
+        if not csrf:
+            raise ProviderAuthError("Bilibili bili_jct cookie is required")
+        await self._auth_request_json(
+            "POST",
+            _RELATION_MODIFY_URL,
+            data={
+                "fid": uid,
+                "act": "1" if follow else "2",
+                "re_src": "14",
+                "csrf": csrf,
+                "csrf_token": csrf,
+            },
+            label="Bilibili follow" if follow else "Bilibili unfollow",
+            ok_codes={0, 22014, 22015, 22120},
+        )
+        return {
+            "success": True,
+            "remote": True,
+            "provider": "bilibili",
+            "username": str(username or "").strip(),
+        }
+
+    async def _bili_sync_live_following(self) -> Optional[list[dict[str, object]]]:
+        items: list[dict[str, object]] = []
+        page_size = 10
+        for page in range(1, 51):
+            try:
+                payload = await self._auth_request_json(
+                    "GET",
+                    _LIVE_FOLLOWING_URL,
+                    params={
+                        "page": str(page),
+                        "page_size": str(page_size),
+                        "ignoreRecord": "1",
+                    },
+                    label="Bilibili live following",
+                )
+            except ProviderAuthError:
+                raise
+            except Exception:
+                return None if page == 1 else items
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+            rows = data.get("list") or data.get("items") or []
+            page_items = [
+                item
+                for item in (
+                    self._bili_follow_item_from_live_row(row)
+                    for row in rows
+                    if isinstance(row, dict)
+                )
+                if item
+            ]
+            items.extend(page_items)
+            if len(items) >= HXYLIVE_MAX_FOLLOW_SYNC_ITEMS:
+                return items[:HXYLIVE_MAX_FOLLOW_SYNC_ITEMS]
+            total_page = int(data.get("totalPage") or data.get("total_page") or 0)
+            if len(page_items) < page_size or (total_page and page >= total_page):
+                break
+        return items
+
+    async def _bili_sync_relation_followings(self, mid: str) -> list[dict[str, object]]:
+        uid = str(mid or "").strip()
+        if not uid.isdigit():
+            raise ProviderAuthError("Bilibili login required")
+        rows: list[dict[str, Any]] = []
+        page_size = 50
+        for page in range(1, 101):
+            payload = await self._auth_request_json(
+                "GET",
+                _RELATION_FOLLOWINGS_URL,
+                params={
+                    "vmid": uid,
+                    "pn": str(page),
+                    "ps": str(page_size),
+                    "order": "desc",
+                    "order_type": "attention",
+                },
+                label="Bilibili followings",
+            )
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+            page_rows = [
+                row for row in (data.get("list") or []) if isinstance(row, dict)
+            ]
+            rows.extend(page_rows)
+            if len(rows) >= HXYLIVE_MAX_FOLLOW_SYNC_ITEMS:
+                rows = rows[:HXYLIVE_MAX_FOLLOW_SYNC_ITEMS]
+                break
+            total = int(data.get("total") or 0)
+            if len(page_rows) < page_size or (total and len(rows) >= total):
+                break
+        infos = await asyncio.gather(
+            *(
+                self._room_info_by_mid(str(row.get("mid") or row.get("uid") or ""))
+                for row in rows
+            ),
+            return_exceptions=True,
+        )
+        items: list[dict[str, object]] = []
+        for row, info in zip(rows, infos):
+            item = self._bili_follow_item_from_relation(row, info if isinstance(info, dict) else None)
+            if item:
+                items.append(item)
+        return items
+
+    def _bili_follow_item_from_live_row(self, row: dict[str, Any]) -> Optional[dict[str, object]]:
+        room_id = str(row.get("roomid") or row.get("room_id") or "").strip()
+        if not room_id or not room_id.isdigit() or room_id == "0":
+            return None
+        live_status = row.get("live_status")
+        is_online = live_status in (1, "1", True)
+        face = self._absolute_url(row.get("face") or row.get("user_cover") or "")
+        uname = self._clean_text(row.get("uname") or row.get("username") or "")
+        return {
+            "username": room_id,
+            "display_name": uname or room_id,
+            "is_online": is_online,
+            "viewers": self._as_nonneg_int(row.get("online") or 0) if is_online else 0,
+            "thumbnail_url": face,
+            "profile_image_url": face,
+            "source_type": "bilibili",
+            "room_status": "public" if is_online else "offline",
+            "user_id": str(row.get("uid") or "").strip(),
+            "channel_url": f"https://live.bilibili.com/{room_id}",
+        }
+
+    def _bili_follow_item_from_relation(
+        self,
+        row: dict[str, Any],
+        info: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, object]]:
+        room_id = str((info or {}).get("roomid") or (info or {}).get("room_id") or "").strip()
+        if not room_id or not room_id.isdigit() or room_id == "0":
+            return None
+        live_status = (info or {}).get("liveStatus")
+        if live_status is None:
+            live_status = (info or {}).get("live_status")
+        is_online = live_status in (1, "1", True)
+        face = self._absolute_url(row.get("face") or (info or {}).get("face") or "")
+        uname = self._clean_text(
+            row.get("uname") or (info or {}).get("uname") or ""
+        )
+        return {
+            "username": room_id,
+            "display_name": uname or room_id,
+            "is_online": is_online,
+            "viewers": self._as_nonneg_int((info or {}).get("online") or 0) if is_online else 0,
+            "thumbnail_url": face,
+            "profile_image_url": face,
+            "source_type": "bilibili",
+            "room_status": "public" if is_online else "offline",
+            "user_id": str(row.get("mid") or row.get("uid") or "").strip(),
+            "channel_url": f"https://live.bilibili.com/{room_id}",
+        }

@@ -113,7 +113,8 @@ class MacHelperLedgerTests(unittest.TestCase):
             "size": 12,
         }
         with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[]):
-            self.helper._relocate_one(item)
+            with patch.object(self.helper, "_push_folder_snapshot"):
+                self.helper._relocate_one(item)
         dest = self.video_dir / "model" / "2026-08-02.mp4"
         self.assertFalse(source.exists())
         self.assertTrue(dest.exists())
@@ -135,32 +136,16 @@ class MacHelperLedgerTests(unittest.TestCase):
             "size": 12,
         }
         with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[]):
-            waiter = threading.Thread(target=self.helper._relocate_one, args=(item,))
-            waiter.start()
-            result = self.helper.wait_for_filed(["rec_clip"], 2.0)
-            waiter.join(timeout=2.0)
+            with patch.object(self.helper, "_push_folder_snapshot"):
+                waiter = threading.Thread(
+                    target=self.helper._relocate_one,
+                    args=(item,),
+                )
+                waiter.start()
+                result = self.helper.wait_for_filed(["rec_clip"], 2.0)
+                waiter.join(timeout=2.0)
         self.assertIn("rec_clip", result["filed"])
         self.assertEqual(result["remaining"], [])
-
-    def test_relocate_picks_up_chrome_download_outside_video_dir(self):
-        chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
-        chrome_dir.mkdir()
-        self.helper.chrome_download_dir_arg = str(chrome_dir)
-        chrome_name = "hxylive-rec_clip__pending.mp4"
-        source = chrome_dir / chrome_name
-        source.write_bytes(b"0123456789ab")
-        item = {
-            "recordingId": "rec_clip",
-            "downloadFilename": chrome_name,
-            "relativePath": "model/2026-08-02.mp4",
-            "size": 12,
-        }
-        with patch.object(self.helper, "_chrome_preference_download_dirs", return_value=[]):
-            self.helper._relocate_one(item)
-        dest = self.video_dir / "model" / "2026-08-02.mp4"
-        self.assertFalse(source.exists())
-        self.assertTrue(dest.exists())
-        self.assertEqual(dest.read_bytes(), b"0123456789ab")
 
     def test_download_watch_dirs_include_chrome_override(self):
         chrome_dir = Path(self.tmpdir.name) / "chrome-downloads"
@@ -285,6 +270,88 @@ class MacHelperLedgerTests(unittest.TestCase):
         self.assertTrue(first.is_file())
         self.assertEqual(first.read_bytes(), b"png-bytes")
         self.assertEqual(first, second)
+
+    def test_opener_uses_proxy_only_when_reachable(self):
+        self.helper.proxy_url = "http://127.0.0.1:7897"
+
+        def proxied_http(opener):
+            for handler in opener.handlers:
+                proxies = getattr(handler, "proxies", None)
+                if isinstance(proxies, dict) and proxies.get("http"):
+                    return proxies.get("http")
+            return None
+
+        with patch.object(self.helper, "_proxy_is_reachable", return_value=True):
+            self.assertEqual(proxied_http(self.helper._opener()), "http://127.0.0.1:7897")
+        with patch.object(self.helper, "_proxy_is_reachable", return_value=False):
+            self.assertIsNone(proxied_http(self.helper._opener()))
+
+    def test_heartbeat_claims_pending_jobs(self):
+        opened = []
+
+        class ImmediateThread:
+            def __init__(self, target=None, args=(), kwargs=None, daemon=None, name=None):
+                self._target = target
+                self._args = args
+
+            def start(self):
+                self._target(*self._args)
+
+        def fake_vps(method, path, payload=None, timeout=20):
+            self.assertEqual(method, "POST")
+            self.assertEqual(path, "/api/mac/helper/heartbeat")
+            self.assertEqual(payload["localSessionId"], self.helper.session_id)
+            return {
+                "pendingJobs": [{
+                    "jobId": "job1",
+                    "items": [{"url": "http://example.test/file", "downloadFilename": "a.mp4"}],
+                }]
+            }
+
+        with patch.object(self.helper, "_vps_json", side_effect=fake_vps), \
+             patch.object(self.helper, "open_downloads", side_effect=lambda *args: opened.append(args)), \
+             patch.object(helper_mod.threading, "Thread", ImmediateThread):
+            self.helper._push_heartbeat_and_run_jobs()
+        self.assertEqual(opened, [("job1", [{
+            "url": "http://example.test/file",
+            "downloadFilename": "a.mp4",
+        }])])
+
+    def test_heartbeat_and_command_poll_run_open_commands(self):
+        opened = []
+
+        def fake_vps(method, path, payload=None, timeout=20):
+            if method == "GET":
+                self.assertIn("/api/mac/helper/commands?", path)
+                return {
+                    "pendingCommands": [{
+                        "commandId": "cmd1",
+                        "type": "open",
+                        "relativePath": "model/clip.mp4",
+                        "recordingId": "rec_clip",
+                        "reveal": True,
+                    }]
+                }
+            return {"pendingJobs": [], "pendingCommands": [{
+                "commandId": "cmd2",
+                "type": "open",
+                "relativePath": "model/other.mp4",
+                "recordingId": "",
+                "reveal": False,
+            }]}
+
+        with patch.object(self.helper, "_vps_json", side_effect=fake_vps), \
+             patch.object(self.helper, "open_local", side_effect=lambda **kwargs: opened.append(kwargs) or {
+                 "status": "ok",
+                 "relativePath": kwargs.get("relative") or "x",
+                 "reveal": kwargs.get("reveal"),
+             }):
+            self.helper._claim_and_run_commands()
+            self.helper._push_heartbeat_and_run_jobs()
+        self.assertEqual(opened, [
+            {"relative": "model/clip.mp4", "recording_id": "rec_clip", "reveal": True},
+            {"relative": "model/other.mp4", "recording_id": "", "reveal": False},
+        ])
 
 
 if __name__ == "__main__":

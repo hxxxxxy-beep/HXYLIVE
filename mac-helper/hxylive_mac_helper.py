@@ -29,6 +29,7 @@ DOWNLOAD_WAIT_SECONDS = 6 * 60 * 60
 DOWNLOAD_POLL_SECONDS = 1.0
 SIZE_STABLE_POLLS = 2
 VPS_SYNC_INTERVAL_SECONDS = 3.0
+COMMAND_POLL_INTERVAL_SECONDS = 0.5
 
 
 class Helper:
@@ -193,18 +194,9 @@ class Helper:
         }
 
     def _push_folder_snapshot(self) -> None:
-        """Update the VPS Media snapshot without claiming new download jobs."""
+        """Update the VPS Media snapshot without dropping claimed jobs or commands."""
         try:
-            snapshot = self.scan()
-            self._vps_json(
-                "POST",
-                "/api/mac/helper/heartbeat",
-                {
-                    "localSessionId": snapshot["localSessionId"],
-                    "files": self._heartbeat_files(snapshot),
-                },
-                timeout=8,
-            )
+            self._push_heartbeat_and_run_jobs()
         except Exception as exc:
             print(f"[mac-helper] snapshot after file failed: {exc!r}", flush=True)
 
@@ -822,10 +814,6 @@ class Helper:
                 "files": self._heartbeat_files(snapshot),
             },
         )
-        print(
-            f"[mac-helper] VPS snapshot ok ({len(snapshot.get('files') or [])} files)",
-            flush=True,
-        )
         for job in result.get("pendingJobs") or []:
             job_id = str(job.get("jobId") or "")
             items = job.get("items") or []
@@ -840,6 +828,52 @@ class Helper:
                 args=(job_id, items),
                 daemon=True,
             ).start()
+        self._run_pending_commands(result.get("pendingCommands") or [])
+
+    def _run_pending_commands(self, commands):
+        for cmd in commands or []:
+            ctype = str((cmd or {}).get("type") or "")
+            command_id = str((cmd or {}).get("commandId") or "")
+            try:
+                if ctype == "open":
+                    result = self.open_local(
+                        relative=str(cmd.get("relativePath") or ""),
+                        recording_id=str(cmd.get("recordingId") or ""),
+                        reveal=bool(cmd.get("reveal")),
+                    )
+                    print(
+                        f"[mac-helper] opened {result.get('relativePath')} "
+                        f"(reveal={bool(cmd.get('reveal'))})",
+                        flush=True,
+                    )
+                elif ctype == "delete":
+                    deleted = 0
+                    for item in cmd.get("items") or []:
+                        if not isinstance(item, dict):
+                            continue
+                        self.delete_local(
+                            relative=str(item.get("relativePath") or ""),
+                            recording_id=str(item.get("recordingId") or ""),
+                        )
+                        deleted += 1
+                    print(f"[mac-helper] deleted {deleted} Mac file(s)", flush=True)
+                    threading.Thread(target=self._push_folder_snapshot, daemon=True).start()
+                else:
+                    print(f"[mac-helper] unknown command {command_id} type {ctype!r}", flush=True)
+            except Exception as exc:
+                print(
+                    f"[mac-helper] command {command_id or ctype} failed: {exc!r}",
+                    flush=True,
+                )
+
+    def _claim_and_run_commands(self):
+        query = urllib.parse.urlencode({"localSessionId": self.session_id})
+        result = self._vps_json(
+            "GET",
+            "/api/mac/helper/commands?" + query,
+            timeout=8,
+        )
+        self._run_pending_commands(result.get("pendingCommands") or [])
 
     def start_vps_sync(self):
         def loop():
@@ -852,7 +886,21 @@ class Helper:
                 delay = VPS_SYNC_INTERVAL_SECONDS - (time.time() - started)
                 time.sleep(delay if delay > 0.5 else 0.5)
 
+        def command_loop():
+            last_error = None
+            while True:
+                try:
+                    self._claim_and_run_commands()
+                    last_error = None
+                except Exception as exc:
+                    message = repr(exc)
+                    if message != last_error:
+                        print(f"[mac-helper] command poll failed: {exc!r}", flush=True)
+                        last_error = message
+                time.sleep(COMMAND_POLL_INTERVAL_SECONDS)
+
         threading.Thread(target=loop, name="hxylive-vps-sync", daemon=True).start()
+        threading.Thread(target=command_loop, name="hxylive-command-poll", daemon=True).start()
 
     def fetch_job(self, vps_base: str, job_id: str) -> dict:
         query = urllib.parse.urlencode({"localSessionId": self.session_id})
@@ -1151,7 +1199,10 @@ def make_handler(helper: Helper):
             if not self._origin_allowed():
                 self._json(403, {"error": "Origin not allowed"})
                 return
-            self._json(204, {})
+            self.send_response(204)
+            self._cors()
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def do_GET(self):
             if not self._origin_allowed():
