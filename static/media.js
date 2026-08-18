@@ -34,6 +34,7 @@
     resolvingProfileImage: false,
     localSessionId: '',
     macHelperAvailable: false,
+    macHelperDirect: false,
     syncStatuses: {},
     syncScannedAt: 0,
     deviceFilter: 'all',
@@ -45,6 +46,10 @@
   var MEDIA_PAGE_SIZE = 12;
   var PROFILE_PAGE_ROWS = 2;
   var MAC_HELPER_BASE = 'http://127.0.0.1:17899';
+  var fileWatchTimer = null;
+  var fileWatchTick = null;
+  var fileWatchGeneration = 0;
+  var FILE_WATCH_MAX_MS = 6 * 60 * 60 * 1000;
 
   var PROFILE_SOURCE_OPTIONS = [
     { value: 'twitch', label: 'Twitch', domains: ['twitch.tv', 'www.twitch.tv'] },
@@ -2828,6 +2833,87 @@
     rebuildVisibleItems();
   }
 
+  function itemStillWaitingForMac(id) {
+    return (state.syncStatuses || {})[id] !== 'synced';
+  }
+
+  function recordingIdsForMediaItems(ids) {
+    var found = [];
+    (ids || []).forEach(function(id) {
+      var item = itemById(id);
+      var rid = String((item && item.recordingId) || '').trim();
+      if (rid) found.push(rid);
+    });
+    return found;
+  }
+
+  function stopWatchingFiledDownloads() {
+    fileWatchGeneration += 1;
+    fileWatchTick = null;
+    if (fileWatchTimer) {
+      clearTimeout(fileWatchTimer);
+      fileWatchTimer = null;
+    }
+  }
+
+  function watchFiledDownloads(ids) {
+    stopWatchingFiledDownloads();
+    var generation = fileWatchGeneration;
+    var startedAt = Date.now();
+    var recordingIds = recordingIdsForMediaItems(ids);
+
+    async function tick() {
+      if (generation !== fileWatchGeneration) return;
+      if (Date.now() - startedAt > FILE_WATCH_MAX_MS) {
+        fileWatchTick = null;
+        fileWatchTimer = null;
+        return;
+      }
+      var filedNow = false;
+      if (recordingIds.length && state.localSessionId) {
+        var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var abortTimer = setTimeout(function() {
+          if (controller) controller.abort();
+        }, 28000);
+        try {
+          var fetchOptions = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              localSessionId: state.localSessionId,
+              recordingIds: recordingIds,
+              timeoutMs: 25000
+            }),
+            cache: 'no-store'
+          };
+          if (controller) fetchOptions.signal = controller.signal;
+          var res = await fetch(MAC_HELPER_BASE + '/wait-filed', fetchOptions);
+          var data = await res.json().catch(function() { return {}; });
+          filedNow = !!(res.ok && data && Array.isArray(data.filed) && data.filed.length);
+        } catch (_) {
+          filedNow = false;
+        } finally {
+          clearTimeout(abortTimer);
+        }
+      }
+      if (generation !== fileWatchGeneration) return;
+      if (filedNow) {
+        try { await scanMacAndRefresh(true); } catch (_) {}
+        if (generation !== fileWatchGeneration) return;
+        if (!ids.filter(itemStillWaitingForMac).length) {
+          fileWatchTick = null;
+          fileWatchTimer = null;
+          showToast(ids.length + ' video(s) filed on Mac', 'success');
+          return;
+        }
+      }
+      fileWatchTimer = setTimeout(tick, filedNow ? 200 : 800);
+    }
+
+    fileWatchTick = tick;
+    fileWatchTimer = setTimeout(tick, 200);
+  }
+
   async function downloadSelectedToMac() {
     var ids = Object.keys(state.selectedItemIds).filter(function(id) {
       return itemIsDownloadable(itemById(id));
@@ -2862,6 +2948,7 @@
       }
       showToast(ids.length + ' download(s) started in Chrome; helper will file them', 'success');
       state.selectedItemIds = {};
+      watchFiledDownloads(ids);
     } catch (e) {
       showToast(e.message || 'Download batch failed', 'error');
     }
@@ -3013,6 +3100,11 @@
     }
     var downloadSelected = $('mediaDownloadSelectedBtn');
     if (downloadSelected) downloadSelected.addEventListener('click', downloadSelectedToMac);
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden || !fileWatchTick) return;
+      if (fileWatchTimer) clearTimeout(fileWatchTimer);
+      fileWatchTimer = setTimeout(fileWatchTick, 400);
+    });
     var deleteSelected = $('mediaDeleteSelectedBtn');
     if (deleteSelected) deleteSelected.addEventListener('click', openBatchDeleteConfirm);
     var selectAll = $('mediaSelectAllBtn');

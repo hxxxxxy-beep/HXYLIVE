@@ -3,15 +3,19 @@
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
+import queue
 import re
 import secrets
 import shutil
+import socket
 import struct
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +28,7 @@ LEDGER_VERSION = 2
 DOWNLOAD_WAIT_SECONDS = 6 * 60 * 60
 DOWNLOAD_POLL_SECONDS = 1.0
 SIZE_STABLE_POLLS = 2
+VPS_SYNC_INTERVAL_SECONDS = 3.0
 
 
 class Helper:
@@ -43,14 +48,17 @@ class Helper:
             print(f"[mac-helper] could not create video dir {self.video_dir}: {exc!r}", flush=True)
         self.allowed_origin = allowed_origin.rstrip("/")
         self.proxy_url = proxy_url
-        # Optional override; otherwise Chrome Preferences + ~/Downloads are watched.
+        # Optional override; otherwise only Chrome's configured download folder is watched.
         self.chrome_download_dir_arg = (
             str(chrome_download_dir).strip() if chrome_download_dir else ""
         )
         self.session_id = secrets.token_urlsafe(24)
+        self._using_proxy = None
         self.support_dir = support_dir or (Path.home() / "Library" / "Application Support" / "HXYLIVE")
         self.support_dir.mkdir(parents=True, exist_ok=True)
         self.ledger_path = self.support_dir / LEDGER_NAME
+        self._filed_lock = threading.Lock()
+        self._filed_waiters = []
 
     def _refresh_video_dir(self) -> Path:
         """Re-resolve on each scan so a late-mounted external disk is picked up."""
@@ -121,6 +129,84 @@ class Helper:
             "updatedAt": int(time.time()),
         }
         self._save_ledger(list(by_id.values()))
+
+    def notify_filed(self, recording_id: str, relative: str, size: int) -> None:
+        """Wake Media-page waiters after a file is in video_dir/<streamer>/."""
+        event = {
+            "recordingId": str(recording_id or "").strip(),
+            "relativePath": str(relative or "").strip(),
+            "size": int(size or 0),
+            "filedAt": int(time.time()),
+        }
+        if not event["recordingId"]:
+            return
+        with self._filed_lock:
+            waiters = list(self._filed_waiters)
+        for waiter in waiters:
+            try:
+                waiter.put_nowait(event)
+            except Exception:
+                continue
+        threading.Thread(target=self._push_folder_snapshot, daemon=True).start()
+
+    def wait_for_filed(self, recording_ids: list, timeout_seconds: float) -> dict:
+        wanted = {
+            str(item or "").strip()
+            for item in recording_ids
+            if str(item or "").strip()
+        }
+        if not wanted:
+            return {"filed": [], "remaining": []}
+        already = {
+            str(entry.get("recordingId") or "").strip()
+            for entry in self._load_ledger()
+            if str(entry.get("recordingId") or "").strip() in wanted
+        }
+        if already == wanted:
+            return {"filed": sorted(wanted), "remaining": []}
+        waiter = queue.Queue()
+        with self._filed_lock:
+            self._filed_waiters.append(waiter)
+        filed = set(already)
+        deadline = time.time() + max(0.2, float(timeout_seconds))
+        try:
+            while filed != wanted and time.time() < deadline:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                try:
+                    event = waiter.get(timeout=remaining)
+                except queue.Empty:
+                    break
+                rid = str((event or {}).get("recordingId") or "").strip()
+                if rid in wanted:
+                    filed.add(rid)
+                    if rid not in already:
+                        break
+        finally:
+            with self._filed_lock:
+                if waiter in self._filed_waiters:
+                    self._filed_waiters.remove(waiter)
+        return {
+            "filed": sorted(filed),
+            "remaining": sorted(wanted - filed),
+        }
+
+    def _push_folder_snapshot(self) -> None:
+        """Update the VPS Media snapshot without claiming new download jobs."""
+        try:
+            snapshot = self.scan()
+            self._vps_json(
+                "POST",
+                "/api/mac/helper/heartbeat",
+                {
+                    "localSessionId": snapshot["localSessionId"],
+                    "files": self._heartbeat_files(snapshot),
+                },
+                timeout=8,
+            )
+        except Exception as exc:
+            print(f"[mac-helper] snapshot after file failed: {exc!r}", flush=True)
 
     def _attach_recording_ids(self, files: list) -> list:
         """Map relative paths back to recordingIds via legacy names or the ledger."""
@@ -639,15 +725,146 @@ class Helper:
             "files": files,
         }
 
+    def _proxy_is_reachable(self) -> bool:
+        proxy_url = (self.proxy_url or "").strip()
+        if not proxy_url:
+            return False
+        parsed = urllib.parse.urlparse(proxy_url)
+        host = parsed.hostname
+        if not host:
+            return False
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            with socket.create_connection((host, port), timeout=0.4):
+                return True
+        except OSError:
+            return False
+
     def _opener(self):
-        proxies = {"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else {}
+        use_proxy = bool((self.proxy_url or "").strip()) and self._proxy_is_reachable()
+        if use_proxy != self._using_proxy:
+            self._using_proxy = use_proxy
+            if (self.proxy_url or "").strip():
+                print(
+                    "[mac-helper] VPS traffic via proxy"
+                    if use_proxy
+                    else "[mac-helper] proxy is down; reaching VPS directly",
+                    flush=True,
+                )
+        proxies = {"http": self.proxy_url, "https": self.proxy_url} if use_proxy else {}
         return urllib.request.build_opener(urllib.request.ProxyHandler(proxies))
+
+    def _vps_json(self, method: str, path: str, payload=None, timeout=20):
+        url = self.allowed_origin.rstrip("/") + path
+        parsed = urllib.parse.urlparse(url)
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        headers = {"Accept": "application/json", "Host": parsed.netloc}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+            headers["Content-Length"] = str(len(body))
+        use_proxy = bool((self.proxy_url or "").strip()) and self._proxy_is_reachable()
+        if use_proxy != self._using_proxy:
+            self._using_proxy = use_proxy
+            if (self.proxy_url or "").strip():
+                print(
+                    "[mac-helper] VPS traffic via proxy"
+                    if use_proxy
+                    else "[mac-helper] proxy is down; reaching VPS directly",
+                    flush=True,
+                )
+        if use_proxy:
+            proxy = urllib.parse.urlparse(self.proxy_url)
+            conn = http.client.HTTPConnection(
+                proxy.hostname, proxy.port or 80, timeout=timeout
+            )
+            conn.request(method, url, body=body, headers=headers)
+        else:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            if parsed.scheme == "https":
+                conn = http.client.HTTPSConnection(parsed.hostname, port, timeout=timeout)
+            else:
+                conn = http.client.HTTPConnection(parsed.hostname, port, timeout=timeout)
+            request_path = parsed.path or "/"
+            if parsed.query:
+                request_path += "?" + parsed.query
+            conn.request(method, request_path, body=body, headers=headers)
+        try:
+            resp = conn.getresponse()
+            data = resp.read()
+            if resp.status >= 400:
+                raise urllib.error.HTTPError(url, resp.status, resp.reason, resp.headers, None)
+            if not data:
+                return {}
+            return json.loads(data.decode("utf-8"))
+        finally:
+            conn.close()
+
+    def _heartbeat_files(self, snapshot: dict) -> list:
+        files = []
+        for entry in snapshot.get("files") or []:
+            filename = str(entry.get("filename") or "").strip()
+            if not filename:
+                continue
+            files.append({
+                "recordingId": str(entry.get("recordingId") or "") or None,
+                "filename": filename,
+                "size": int(entry.get("size") or 0),
+            })
+        return files
+
+    def _push_heartbeat_and_run_jobs(self):
+        snapshot = self.scan()
+        result = self._vps_json(
+            "POST",
+            "/api/mac/helper/heartbeat",
+            {
+                "localSessionId": snapshot["localSessionId"],
+                "files": self._heartbeat_files(snapshot),
+            },
+        )
+        print(
+            f"[mac-helper] VPS snapshot ok ({len(snapshot.get('files') or [])} files)",
+            flush=True,
+        )
+        for job in result.get("pendingJobs") or []:
+            job_id = str(job.get("jobId") or "")
+            items = job.get("items") or []
+            if not job_id or not items:
+                continue
+            print(
+                f"[mac-helper] heartbeat claimed job {job_id} with {len(items)} item(s)",
+                flush=True,
+            )
+            threading.Thread(
+                target=self.open_downloads,
+                args=(job_id, items),
+                daemon=True,
+            ).start()
+
+    def start_vps_sync(self):
+        def loop():
+            while True:
+                started = time.time()
+                try:
+                    self._push_heartbeat_and_run_jobs()
+                except Exception as exc:
+                    print(f"[mac-helper] VPS sync failed: {exc!r}", flush=True)
+                delay = VPS_SYNC_INTERVAL_SECONDS - (time.time() - started)
+                time.sleep(delay if delay > 0.5 else 0.5)
+
+        threading.Thread(target=loop, name="hxylive-vps-sync", daemon=True).start()
 
     def fetch_job(self, vps_base: str, job_id: str) -> dict:
         query = urllib.parse.urlencode({"localSessionId": self.session_id})
         url = f"{vps_base.rstrip('/')}/api/mac/download-jobs/{urllib.parse.quote(job_id)}?{query}"
-        with self._opener().open(url, timeout=20) as response:
-            job = json.load(response)
+        try:
+            with self._opener().open(url, timeout=20) as response:
+                job = json.load(response)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 409:
+                print(f"[mac-helper] job {job_id} already claimed", flush=True)
+                return {"jobId": job_id, "items": []}
+            raise
         print(f"[mac-helper] claimed job {job_id} with {len(job.get('items', []))} item(s)", flush=True)
         return job
 
@@ -756,9 +973,9 @@ class Helper:
 
     def _download_watch_dirs(self) -> list:
         """
-        Folders where Chrome may write the flat basename before we file it
-        under video_dir/<streamer>/. Chrome's download folder can differ from
-        video_dir, which is only the final library root.
+        Chrome's configured download folder only. Matching completed files
+        are moved into video_dir/<streamer>/. The library itself is the
+        destination, not a download watch dir, unless Chrome saves there.
         """
         ordered = []
         seen = set()
@@ -766,15 +983,6 @@ class Helper:
         if self.chrome_download_dir_arg:
             candidates.append(Path(self.chrome_download_dir_arg))
         candidates.extend(self._chrome_preference_download_dirs())
-        candidates.append(Path.home() / "Downloads")
-        candidates.append(self._refresh_video_dir())
-        # Exact-basename recovery if a completed file was left next to video_dir.
-        try:
-            parent = self._refresh_video_dir().parent
-            if parent != self.video_dir:
-                candidates.append(parent)
-        except OSError:
-            pass
         for raw in candidates:
             try:
                 path = Path(raw).expanduser().resolve()
@@ -830,7 +1038,9 @@ class Helper:
         deadline = time.time() + DOWNLOAD_WAIT_SECONDS
         last_sizes = {}
         watch = self._download_watch_dirs()
-        watch_label = ", ".join(str(path) for path in watch) or "(none)"
+        if not watch:
+            raise RuntimeError("no Chrome download folder to watch")
+        watch_label = ", ".join(str(path) for path in watch)
         print(
             f"[mac-helper] waiting for Chrome file {download_name} in {watch_label}",
             flush=True,
@@ -869,6 +1079,7 @@ class Helper:
             if expected_size <= 0 or size == expected_size:
                 if recording_id:
                     self.upsert_ledger_entry(recording_id, rel.as_posix(), size)
+                    self.notify_filed(recording_id, rel.as_posix(), size)
                 print(f"[mac-helper] already filed {relative}", flush=True)
                 return
 
@@ -877,6 +1088,7 @@ class Helper:
         self._move_file(source, dest)
         if recording_id:
             self.upsert_ledger_entry(recording_id, rel.as_posix(), size)
+            self.notify_filed(recording_id, rel.as_posix(), size)
         print(f"[mac-helper] filed {download_name} -> {relative} ({size} bytes)", flush=True)
 
     def open_downloads(self, job_id: str, items: list):
@@ -1085,6 +1297,21 @@ def make_handler(helper: Helper):
                     "itemCount": len(job.get("items") or []),
                 })
                 return
+            if self.path == "/wait-filed":
+                if body.get("localSessionId") != helper.session_id:
+                    self._json(403, {"error": "Wrong local session"})
+                    return
+                raw_ids = body.get("recordingIds")
+                if not isinstance(raw_ids, list) or len(raw_ids) > 100:
+                    self._json(400, {"error": "recordingIds must be a list of at most 100 ids"})
+                    return
+                try:
+                    timeout_seconds = float(body.get("timeoutMs") or 25000) / 1000.0
+                except (TypeError, ValueError):
+                    timeout_seconds = 25.0
+                timeout_seconds = min(30.0, max(0.5, timeout_seconds))
+                self._json(200, helper.wait_for_filed(raw_ids, timeout_seconds))
+                return
             self._json(404, {"error": "Not found"})
 
         def log_message(self, fmt, *args):
@@ -1113,6 +1340,7 @@ def main():
         args.proxy,
         chrome_download_dir=args.chrome_download_dir or None,
     )
+    helper.start_vps_sync()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(helper))
     print(f"HXYLIVE Mac helper listening on http://127.0.0.1:{args.port}")
     print(f"Video folder: {helper.video_dir}")

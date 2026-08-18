@@ -82,7 +82,7 @@ git clone https://github.com/hxxxxxy-beep/HXYLIVE.git && cd HXYLIVE
   --proxy http://127.0.0.1:7897
 ```
 
-Omit `--proxy` if unused. Optional `--chrome-download-dir` watches Chrome's save folder when it differs from `--video-dir`. Health: `curl --noproxy '*' http://127.0.0.1:17899/health`.  
+Omit `--proxy` if unused. The helper watches Chrome's configured download folder and files completed videos into the library; pass `--chrome-download-dir` only if Chrome Preferences cannot be read. Health: `curl --noproxy '*' http://127.0.0.1:17899/health`.  
 Uninstall (keeps videos): `./mac-helper/uninstall.sh`.
 
 ## Configuration

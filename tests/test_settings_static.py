@@ -341,6 +341,8 @@ class SettingsStaticTests(unittest.TestCase):
         self.assertIn("refreshProfiles", js)
         self.assertIn("live_refresh", js)
         self.assertIn("scanMacAndRefresh(true, true)", js)
+        self.assertIn("watchFiledDownloads", js)
+        self.assertIn("MAC_HELPER_BASE + '/wait-filed'", js)
         self.assertIn("media-refresh-btn", html)
         self.assertIn(".media-refresh-btn", css)
         self.assertIn("mediaDeviceFilters", html)
