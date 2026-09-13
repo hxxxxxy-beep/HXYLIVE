@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Media - HXYLIVE</title>
+  <link rel="stylesheet" href="/static/styles.css?v=hxylive-ui52">
+  <script src="/static/loader.js?v=hxylive-confirm9"></script>
+      <script defer src="/static/media.js?v=hxylive-proj2"></script>
+    </head>
+<body>
+  <div id="header-placeholder"></div>
+
+  <main class="container media-page">
+    <section class="media-profiles-section" aria-label="Streamers">
+      <div class="media-section-heading">
+        <div class="media-profiles-heading">
+          <h2 id="mediaProfileTitle">
+            <span class="media-heading-profile">Streamers</span>
+            <span class="media-heading-count" id="mediaProfileMeta">: Loading...</span>
+          </h2>
+        </div>
+      </div>
+      <div class="media-streamer-toolbar" aria-label="Streamer filters and actions">
+        <div class="media-toolbar-row media-toolbar-search-row">
+          <div class="media-filter-zone" data-zone="website">
+            <span class="media-filter-zone-label">Website</span>
+            <div class="media-filter-zone-buttons" id="mediaProfileSourceFilters"></div>
+          </div>
+          <div class="media-filter-zone-divider" aria-hidden="true"></div>
+          <span class="media-filter-zone-label">Search</span>
+          <div class="media-search-wrap">
+            <span aria-hidden="true">&#8981;</span>
+            <input id="mediaSearchInput" type="search" placeholder="Search streamer" autocomplete="off">
+          </div>
+        </div>
+        <div class="media-toolbar-row media-toolbar-filters" id="mediaStreamerFilterZones">
+          <div class="media-filter-zone" data-zone="recording">
+            <span class="media-filter-zone-label">Recording</span>
+            <div class="media-filter-zone-buttons" id="mediaProfileRecordingFilters"></div>
+          </div>
+          <div class="media-filter-zone-divider" aria-hidden="true"></div>
+          <div class="media-filter-zone" data-zone="live">
+            <span class="media-filter-zone-label">Live status</span>
+            <div class="media-filter-zone-buttons" id="mediaProfileStatusFilters"></div>
+          </div>
+        </div>
+        <div class="media-toolbar-row media-streamer-actions-row" aria-label="Streamer actions">
+          <span class="media-filter-zone-label">Actions</span>
+          <div class="media-batch-actions media-streamer-batch-actions" id="mediaStreamerBatchActions">
+            <div class="media-action-group">
+              <button class="media-action-btn" id="mediaStreamerSelectAllBtn" type="button" title="Select all streamers matching the current filters">Select all</button>
+              <button class="media-action-btn" id="mediaStreamerSelectPageBtn" type="button" title="Select all streamers on this page">Select page</button>
+              <button class="media-action-btn" id="mediaStreamerClearSelectionBtn" type="button" disabled>Clear</button>
+            </div>
+            <span class="media-toolbar-sep" aria-hidden="true"></span>
+            <div class="media-action-group">
+              <button class="media-action-btn" id="mediaStreamerStartRecordBtn" type="button" disabled>Turn on recording (0)</button>
+              <button class="media-action-btn" id="mediaStreamerStopRecordBtn" type="button" disabled>Turn off recording (0)</button>
+            </div>
+            <span class="media-toolbar-sep" aria-hidden="true"></span>
+            <div class="media-action-group">
+              <button class="media-action-btn danger" id="mediaStreamerDeleteBtn" type="button" disabled>Delete cards (0)</button>
+            </div>
+          </div>
+          <span class="media-toolbar-sep" aria-hidden="true"></span>
+          <div class="media-action-group media-sync-log-group">
+            <button class="media-toolbar-btn" id="mediaFollowSyncBtn" type="button" title="Reconcile local cards with site follows">Sync</button>
+            <button class="media-toolbar-btn" id="mediaStreamerSettingsBtn" type="button" title="Edit selected streamer settings">Settings</button>
+          </div>
+          <span class="media-toolbar-sep" aria-hidden="true"></span>
+          <div class="media-action-group media-streamer-reset-group">
+            <button class="media-toolbar-btn media-toolbar-btn-fill" id="mediaStreamerFilterResetBtn" type="button" title="Reset all streamer filters">Reset</button>
+          </div>
+        </div>
+        <div class="media-toolbar-row media-streamer-pagination-row">
+          <span class="media-filter-zone-label">Pages</span>
+          <nav class="media-pagination media-profile-pagination media-streamer-pagination" id="mediaProfilePagination" aria-label="Streamer pages">
+            <button type="button" class="media-page-nav" id="mediaStreamerPrevPageBtn" title="Previous page (Q)" aria-label="Previous page" disabled>Prev</button>
+            <div class="media-page-numbers" id="mediaProfilePageNumbers" aria-label="Streamer page numbers">
+              <button class="media-page-number active" type="button" data-profile-page="1" aria-label="Profile page 1" aria-current="page">1</button>
+            </div>
+            <button type="button" class="media-page-nav" id="mediaStreamerNextPageBtn" title="Next page (E)" aria-label="Next page" disabled>Next</button>
+          </nav>
+          <div class="media-action-group media-pagination-end-actions">
+            <button class="media-toolbar-btn" id="mediaProfileRefreshBtn" type="button" title="Refresh streamers">Refresh</button>
+          </div>
+        </div>
+      </div>
+      <div class="media-profile-carousel" id="mediaProfileRail">
+        <div class="empty-message">
+          <div class="icon">&#9203;</div>
+          <p>Loading streamers...</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="media-timeline-section" aria-label="Live vs recorded timeline">
+      <div class="media-section-heading">
+        <div class="media-timeline-heading-copy">
+          <h2 id="mediaTimelineTitle">
+            <span class="media-heading-profile">Live vs recorded</span>
+            <span class="media-heading-count" id="mediaTimelineMeta">: Select streamers above</span>
+          </h2>
+        </div>
+      </div>
+      <div class="media-timeline-toolbar" aria-label="Timeline filters">
+        <div class="media-toolbar-row media-timeline-range-row">
+          <span class="media-filter-zone-label">Range</span>
+          <div class="media-filter-zone-buttons" id="mediaTimelineRangeButtons" role="group" aria-label="Timeline range">
+            <button type="button" class="media-profile-source-btn" data-timeline-days="1">1 day</button>
+            <button type="button" class="media-profile-source-btn active" data-timeline-days="7">7 days</button>
+            <button type="button" class="media-profile-source-btn" data-timeline-days="14">14 days</button>
+            <button type="button" class="media-profile-source-btn" data-timeline-days="30">30 days</button>
+          </div>
+          <span class="media-toolbar-sep" aria-hidden="true"></span>
+          <div class="media-action-group">
+            <button type="button" class="media-toolbar-btn" id="mediaTimelineRefreshBtn" title="Reload live and recording intervals for the selected streamers">Refresh</button>
+          </div>
+        </div>
+      </div>
+      <div class="media-timeline-chart-wrap" id="mediaTimelineChartWrap">
+        <p class="media-timeline-empty" id="mediaTimelineEmpty">Select streamer cards above to show their live vs recorded coverage.</p>
+        <svg class="media-timeline-svg" id="mediaTimelineSvg" role="img" aria-label="Live versus recorded timeline" hidden></svg>
+      </div>
+    </section>
+
+    <section class="media-recent-section" aria-label="Recent media">
+      <div class="media-section-heading">
+        <div class="media-recent-heading-copy">
+          <h2 id="mediaRecentTitle">
+            <span class="media-heading-profile">All videos</span>
+            <span class="media-heading-count" id="mediaResultMeta">: Loading...</span>
+          </h2>
+        </div>
+      </div>
+
+      <div class="media-video-toolbar" aria-label="Video filters and actions">
+        <div class="media-toolbar-row media-toolbar-search-row media-video-filter-row">
+          <span class="media-filter-zone-label">Date</span>
+          <div class="media-date-range" id="mediaDateRange" role="group" aria-label="Video date range" title="Override year, month, or day. Enter or leave the control to apply">
+            <span class="media-date-bound" data-bound="from" aria-label="From date">
+              <input class="media-date-digit" data-bound="from" data-part="y" inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false" aria-label="From year">
+              <span class="media-date-sep-char" aria-hidden="true">-</span>
+              <input class="media-date-digit" data-bound="from" data-part="m" inputmode="numeric" maxlength="2" autocomplete="off" spellcheck="false" aria-label="From month">
+              <span class="media-date-sep-char" aria-hidden="true">-</span>
+              <input class="media-date-digit" data-bound="from" data-part="d" inputmode="numeric" maxlength="2" autocomplete="off" spellcheck="false" aria-label="From day">
+            </span>
+            <span class="media-date-range-arrow" aria-hidden="true">→</span>
+            <span class="media-date-bound" data-bound="to" aria-label="To date">
+              <input class="media-date-digit" data-bound="to" data-part="y" inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false" aria-label="To year">
+              <span class="media-date-sep-char" aria-hidden="true">-</span>
+              <input class="media-date-digit" data-bound="to" data-part="m" inputmode="numeric" maxlength="2" autocomplete="off" spellcheck="false" aria-label="To month">
+              <span class="media-date-sep-char" aria-hidden="true">-</span>
+              <input class="media-date-digit" data-bound="to" data-part="d" inputmode="numeric" maxlength="2" autocomplete="off" spellcheck="false" aria-label="To day">
+            </span>
+          </div>
+          <span class="media-toolbar-sep" aria-hidden="true"></span>
+          <div class="media-filter-zone" data-zone="device">
+            <span class="media-filter-zone-label">Device</span>
+            <div class="media-filter-zone-buttons media-device-filters" id="mediaDeviceFilters" aria-label="Device">
+              <button type="button" class="media-device-btn active" data-device="vps" title="Show VPS staging videos">VPS</button>
+              <button type="button" class="media-device-btn active" data-device="mac" title="Show Mac folder videos">Mac</button>
+            </div>
+          </div>
+          <span class="media-toolbar-sep" aria-hidden="true"></span>
+          <div class="media-filter-zone" data-zone="sort">
+            <span class="media-filter-zone-label">Sort</span>
+            <div class="media-filter-zone-buttons media-sort-buttons" id="mediaSortButtons" aria-label="Sort">
+              <button type="button" class="active" data-sort-field="name" title="Sort by name (datetime). Click again to reverse">Newest first</button>
+              <button type="button" data-sort-field="size" title="Sort by size. Click again to reverse">Largest first</button>
+            </div>
+          </div>
+        </div>
+        <div class="media-toolbar-row media-project-filter-row" id="mediaProjectFilterRow" aria-label="Project filters">
+          <span class="media-filter-zone-label">Recording</span>
+          <div class="media-filter-zone-buttons" id="mediaProjectStatusFilters" aria-label="Recording status">
+            <button type="button" class="active" data-project-status="all">All</button>
+            <button type="button" data-project-status="in-progress">In progress</button>
+            <button type="button" data-project-status="completed">Completed</button>
+          </div>
+          <div class="media-filter-zone-buttons media-completed-sync-filters" id="mediaCompletedSyncFilters" aria-label="Completed sync" hidden>
+            <button type="button" class="active" data-completed-sync="all">All</button>
+            <button type="button" data-completed-sync="not-synced">Not fully synced</button>
+            <button type="button" data-completed-sync="synced">Fully synced</button>
+          </div>
+          <span class="media-toolbar-sep" aria-hidden="true"></span>
+          <span class="media-filter-zone-label">Concat</span>
+          <div class="media-filter-zone-buttons" id="mediaConcatStatusFilters" aria-label="Concat status">
+            <button type="button" class="active" data-concat-status="all">All</button>
+            <button type="button" data-concat-status="none">Not concatenated</button>
+            <button type="button" data-concat-status="concatenating">Concatenating</button>
+            <button type="button" data-concat-status="concatenated">Concatenated</button>
+            <button type="button" data-concat-status="failed">Failed</button>
+          </div>
+        </div>
+        <div class="media-toolbar-row media-video-actions-row" aria-label="Video actions">
+          <span class="media-filter-zone-label">Actions</span>
+          <div class="media-batch-actions media-video-batch-actions">
+            <div class="media-action-group media-view-toggle" id="mediaViewToggle" role="group" aria-label="View mode">
+              <button class="media-action-btn active" type="button" data-view-mode="projects">Projects</button>
+              <button class="media-action-btn" type="button" data-view-mode="fragments">Fragments</button>
+            </div>
+            <span class="media-toolbar-sep" aria-hidden="true"></span>
+            <div class="media-action-group">
+              <button class="media-action-btn" id="mediaSelectAllBtn" type="button">Select all</button>
+              <button class="media-action-btn" id="mediaSelectPageBtn" type="button" title="Select all videos on this page">Select page</button>
+            </div>
+            <span class="media-toolbar-sep" aria-hidden="true"></span>
+            <div class="media-action-group">
+              <button class="media-action-btn" id="mediaConcatSelectedBtn" type="button" disabled>Concat selected (0)</button>
+              <button class="media-action-btn" id="mediaTasksBtn" type="button" title="Download, concat, and convert tasks">Tasks</button>
+              <button class="media-action-btn" id="mediaClearSelectionBtn" type="button" disabled>Clear video selection</button>
+              <button class="media-action-btn primary" id="mediaDownloadSelectedBtn" type="button" disabled>Download selected (0)</button>
+              <button class="media-action-btn danger" id="mediaDeleteSelectedBtn" type="button" disabled>Delete selected (0)</button>
+            </div>
+          </div>
+          <span class="media-toolbar-sep" aria-hidden="true"></span>
+          <div class="media-action-group media-video-reset-group">
+            <button class="media-toolbar-btn media-toolbar-btn-fill" id="mediaVideoFilterResetBtn" type="button" title="Reset all video filters">Reset</button>
+          </div>
+        </div>
+        <div class="media-toolbar-row media-video-pagination-row">
+          <span class="media-filter-zone-label">Pages</span>
+          <nav class="media-pagination media-video-pagination" id="mediaPagination" aria-label="Media pages">
+            <button type="button" class="media-page-nav" id="mediaVideoPrevPageBtn" title="Previous page (A)" aria-label="Previous page" disabled>Prev</button>
+            <div class="media-page-numbers" id="mediaPageNumbers" aria-label="Page numbers">
+              <button class="media-page-number active" type="button" data-page="1" aria-label="Page 1" aria-current="page">1</button>
+            </div>
+            <button type="button" class="media-page-nav" id="mediaVideoNextPageBtn" title="Next page (D)" aria-label="Next page" disabled>Next</button>
+          </nav>
+          <div class="media-action-group media-pagination-end-actions">
+            <button class="media-mac-toolbar compact clickable" id="mediaMacToolbar" type="button" aria-label="Refresh Mac folder synchronization" title="Click to rescan the Mac folder and compare with VPS">
+              <span id="mediaMacSyncStatus">Refresh Mac folder</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <section class="media-results">
+        <div id="mediaProjectDetail" class="media-project-detail" hidden></div>
+        <div class="media-grid" id="mediaGrid">
+          <div class="empty-message">
+            <div class="icon">&#9203;</div>
+            <p>Loading media...</p>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="media-storage-panel" aria-label="VPS storage">
+      <div class="media-storage" id="mediaStorage">
+        <div class="media-storage-head">
+          <span class="media-storage-title">VPS storage</span>
+          <div class="media-storage-head-actions">
+            <button class="media-storage-open-btn" id="mediaProcessingBrowseBtn" type="button" title="View temporary and processing files" aria-label="View temporary and processing files">Temp files</button>
+            <button class="media-profile-source-btn media-refresh-btn" id="mediaStorageRefreshBtn" type="button" title="Refresh storage" aria-label="Refresh storage">Refresh</button>
+          </div>
+        </div>
+
+        <div class="media-storage-section">
+          <div class="media-storage-bar media-storage-bar-breakdown" id="mediaDiskBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Usable disk breakdown"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="media-viewer" id="mediaViewer" style="display: none;" aria-hidden="true">
+    <div class="media-viewer-shell">
+      <div class="media-viewer-topbar">
+        <div class="media-viewer-back-region" id="mediaViewerClose" role="button" tabindex="0" title="Close viewer" aria-label="Close viewer">
+          <span class="media-viewer-close" aria-hidden="true">&#8592;</span>
+          <div class="media-viewer-title-wrap">
+            <h2 id="mediaViewerTitle">Media</h2>
+          </div>
+        </div>
+        <div class="media-viewer-actions">
+          <button class="media-viewer-nav" id="mediaViewerPrev" type="button" title="Previous video" aria-label="Previous video">
+            <span aria-hidden="true">&#8592;</span>
+          </button>
+          <button class="media-viewer-nav" id="mediaViewerNext" type="button" title="Next video" aria-label="Next video">
+            <span aria-hidden="true">&#8594;</span>
+          </button>
+        </div>
+      </div>
+      <div class="media-viewer-stage" id="mediaViewerStage"></div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaProcessingModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog media-processing-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaProcessingTitle">
+      <h2 id="mediaProcessingTitle">Processing / temporary files</h2>
+      <p id="mediaProcessingMessage">These files live on the VPS records folder. Delete only when you are sure they are no longer needed.</p>
+      <div class="media-processing-meta" id="mediaProcessingMeta">
+        <span class="media-processing-path" id="mediaProcessingPath"></span>
+        <span class="media-processing-summary" id="mediaProcessingSummary">Loading...</span>
+      </div>
+      <div class="media-processing-table-wrap">
+        <table class="media-processing-table" aria-label="Processing and temporary files">
+          <thead>
+            <tr>
+              <th scope="col">File</th>
+              <th scope="col" class="media-processing-col-size">Size</th>
+              <th scope="col" class="media-processing-col-modified">Modified</th>
+            </tr>
+          </thead>
+          <tbody id="mediaProcessingBody">
+            <tr><td colspan="3" class="media-processing-empty">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaProcessingSelectAll" type="button">Select all</button>
+        <button class="media-delete-cancel" id="mediaProcessingCancel" type="button">Close</button>
+        <button class="media-delete-confirm" id="mediaProcessingDelete" type="button" disabled>Delete selected</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaDownloadMethodModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog media-download-method-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaDownloadMethodTitle">
+      <h2 id="mediaDownloadMethodTitle">Choose download method</h2>
+      <p id="mediaDownloadMethodMessage">Send the selected videos to Motrix or Google Chrome. The Mac helper will file completed downloads into the video folder.</p>
+      <div class="media-delete-target" id="mediaDownloadMethodTarget"></div>
+      <div class="media-download-method-actions">
+        <button class="media-download-method-btn" id="mediaDownloadWithMotrix" type="button" title="Queue downloads in Motrix">
+          <strong>Motrix</strong>
+          <span>Add tasks via Motrix (aria2)</span>
+        </button>
+        <button class="media-download-method-btn" id="mediaDownloadWithChrome" type="button" title="Open download links in Google Chrome">
+          <strong>Google Chrome</strong>
+          <span>Open each link in Chrome</span>
+        </button>
+      </div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaDownloadMethodCancel" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaDeleteModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaDeleteTitle">
+      <h2 id="mediaDeleteTitle">Delete selected videos?</h2>
+      <p id="mediaDeleteMessage">This removes the selected files from their device.</p>
+      <div class="media-delete-target" id="mediaDeleteTarget"></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaDeleteCancel" type="button">Cancel</button>
+        <button class="media-delete-confirm" id="mediaDeleteConfirm" type="button">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-profile-settings-modal" id="mediaProfileSettingsModal" style="display: none;" aria-hidden="true">
+    <div class="media-profile-settings-dialog media-ps-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaProfileSettingsTitle">
+      <header class="media-ps-hero">
+        <div class="media-ps-hero-copy">
+          <p class="media-ps-kicker">Streamer card</p>
+          <h2 id="mediaProfileSettingsTitle">Profile settings</h2>
+          <p class="media-ps-subtitle" id="mediaProfileSettingsSubtitle"></p>
+        </div>
+        <button class="media-profile-settings-close" id="mediaProfileSettingsClose" type="button" aria-label="Close">&#10005;</button>
+      </header>
+
+      <form id="mediaProfileSettingsForm" class="media-profile-settings-form media-ps-form">
+        <div class="media-ps-body">
+          <section class="media-ps-panel">
+            <div class="media-ps-panel-head">
+              <h3>Identity</h3>
+              <p>Name shown on the Media card, folder label, and resume gap buffer for this streamer.</p>
+            </div>
+            <div class="media-ps-identity-grid">
+              <label id="profileUsernameField" class="media-ps-field">
+                <span>Username</span>
+                <input id="profileUsername" type="text" autocomplete="off" placeholder="folder-name">
+              </label>
+              <label class="media-ps-field">
+                <span>Display name</span>
+                <input id="profileDisplayName" type="text" autocomplete="off" placeholder="Display name">
+              </label>
+              <label class="media-ps-field" id="profileGapBufferField">
+                <span>Resume gap buffer</span>
+                <select id="profileGapBufferMinutes" aria-label="Resume gap buffer">
+                  <option value="">Use global default</option>
+                  <option value="15">15 minutes</option>
+                  <option value="30">30 minutes</option>
+                  <option value="60">60 minutes</option>
+                  <option value="90">90 minutes</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="media-ps-panel media-ps-panel-sources">
+            <div class="media-ps-panel-head">
+              <h3>Recording sources</h3>
+              <p>Site, URL, quality, retention, and auto-record for each stream.</p>
+            </div>
+            <div class="media-profile-sources" id="profileSourcesList"></div>
+            <button class="media-source-add-btn" id="profileAddSourceBtn" type="button">+ Add source</button>
+            <div class="media-settings-legacy-fields" hidden>
+              <select id="profileRecordQuality">
+                <option value="best">Best</option>
+                <option value="2160p">2160p</option>
+                <option value="1440p">1440p</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+                <option value="480p">480p</option>
+                <option value="360p">360p</option>
+              </select>
+              <input id="profileRetentionDays" type="number" min="0" max="365">
+              <select id="profileSourceType">
+                <option value="chaturbate">Chaturbate</option>
+                <option value="twitch">Twitch</option>
+                <option value="youtube">YouTube</option>
+                <option value="bilibili">Bilibili</option>
+              </select>
+              <input id="profileAutoRecord" type="checkbox">
+            </div>
+          </section>
+        </div>
+
+        <footer class="media-profile-settings-actions media-ps-footer">
+          <button class="media-profile-delete-btn" id="mediaProfileDeleteBtn" type="button">Delete card</button>
+          <div class="media-ps-footer-right">
+            <button class="media-profile-settings-secondary" id="mediaProfileSettingsCancel" type="button">Cancel</button>
+            <button class="media-profile-settings-primary" id="mediaProfileSettingsSave" type="submit">Save changes</button>
+          </div>
+        </footer>
+      </form>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaProfileDeleteModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaProfileDeleteTitle">
+      <h2 id="mediaProfileDeleteTitle">Delete this streamer card?</h2>
+      <p>This deletes the card, indexed recordings, and the records folder. Unfollow keeps the card; use Delete only to destroy local media.</p>
+      <div class="media-delete-target" id="mediaProfileDeleteTarget"></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaProfileDeleteCancel" type="button">Cancel</button>
+        <button class="media-delete-confirm" id="mediaProfileDeleteConfirm" type="button">Delete card</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaStreamerBulkDeleteModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaStreamerBulkDeleteTitle">
+      <h2 id="mediaStreamerBulkDeleteTitle">Delete selected streamer cards?</h2>
+      <p>This permanently deletes the selected cards, indexed recordings, and records folders. Unfollow does not delete media — use this only when you want to destroy local data.</p>
+      <div class="media-delete-target" id="mediaStreamerBulkDeleteTarget"></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaStreamerBulkDeleteCancel" type="button">Cancel</button>
+        <button class="media-delete-confirm" id="mediaStreamerBulkDeleteConfirm" type="button">Delete cards</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaFollowSyncModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog media-follow-sync-dialog media-reconcile-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaFollowSyncTitle">
+      <h2 id="mediaFollowSyncTitle">Reconcile follows</h2>
+      <p id="mediaFollowSyncHint">Compare local cards with remote follows. Lists refresh after each successful action.</p>
+      <div class="media-follow-sync-toolbar">
+        <input type="search" id="mediaFollowSyncSearch" placeholder="Filter channels…" autocomplete="off" />
+      </div>
+      <div class="media-reconcile-sections" id="mediaFollowSyncSections"></div>
+      <div class="media-reconcile-result" id="mediaFollowSyncResult" hidden></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaFollowSyncCancel" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaSyncLogModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog media-sync-log-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaSyncLogTitle">
+      <h2 id="mediaSyncLogTitle">Media log</h2>
+      <p>Recording, sync, download, Mac helper, and other Media activity for this browser session (not only follow sync).</p>
+      <div class="media-sync-log-list" id="mediaSyncLogList" role="log" aria-live="polite"></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaSyncLogClear" type="button">Clear</button>
+        <button class="media-delete-cancel" id="mediaSyncLogClose" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaSyncSiteModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog media-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaSyncSiteTitle">
+      <h2 id="mediaSyncSiteTitle">Choose site to sync</h2>
+      <p id="mediaSyncSiteHint">Several websites are selected. Pick one site to reconcile.</p>
+      <div class="media-picker-list" id="mediaSyncSiteList" role="listbox" aria-label="Sync sites"></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaSyncSiteCancel" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaStreamerSettingsPickModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog media-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaStreamerSettingsPickTitle">
+      <h2 id="mediaStreamerSettingsPickTitle">Choose streamer settings</h2>
+      <p>Multiple cards are selected. Pick one streamer to edit.</p>
+      <div class="media-picker-list" id="mediaStreamerSettingsPickList" role="listbox" aria-label="Selected streamers"></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaStreamerSettingsPickCancel" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="media-delete-modal" id="mediaTasksModal" style="display: none;" aria-hidden="true">
+    <div class="media-delete-dialog media-tasks-dialog" role="dialog" aria-modal="true" aria-labelledby="mediaTasksTitle">
+      <div class="media-tasks-header">
+        <h2 id="mediaTasksTitle">Tasks</h2>
+        <button class="media-profile-settings-close" id="mediaTasksClose" type="button" aria-label="Close">&#10005;</button>
+      </div>
+      <p class="media-tasks-hint">Monitor download, concat, and convert work. Progress refreshes only while this panel is open.</p>
+      <div class="media-tasks-tabs" id="mediaTasksTabs" role="tablist" aria-label="Task types">
+        <button type="button" class="media-tasks-tab active" role="tab" id="mediaTasksTabDownload" data-tasks-tab="download" aria-selected="true">Download</button>
+        <button type="button" class="media-tasks-tab" role="tab" id="mediaTasksTabConcat" data-tasks-tab="concat" aria-selected="false">Concat</button>
+        <button type="button" class="media-tasks-tab" role="tab" id="mediaTasksTabConvert" data-tasks-tab="convert" aria-selected="false">Convert</button>
+      </div>
+      <div class="media-tasks-toolbar" id="mediaTasksToolbar" hidden>
+        <button type="button" class="media-action-btn" id="mediaTasksSelectAllBtn">Select all</button>
+        <button type="button" class="media-action-btn" id="mediaTasksPauseBtn" disabled>Pause</button>
+        <button type="button" class="media-action-btn" id="mediaTasksResumeBtn" disabled>Resume</button>
+        <button type="button" class="media-action-btn danger" id="mediaTasksDeleteBtn" disabled>Delete</button>
+      </div>
+      <div class="media-tasks-status" id="mediaTasksStatus" aria-live="polite"></div>
+      <div class="media-tasks-body" id="mediaTasksBody"></div>
+      <div class="media-delete-actions">
+        <button class="media-delete-cancel" id="mediaTasksCloseFooter" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

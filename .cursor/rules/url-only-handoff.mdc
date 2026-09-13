@@ -1,0 +1,19 @@
+---
+description: New Mac/VPS AI deploys from the GitHub URL only
+alwaysApply: true
+---
+
+# URL-only handoff
+
+GitHub `main` at https://github.com/hxxxxxy-beep/HXYLIVE is the only deployable snapshot.
+
+A new Cursor session that receives only that URL must:
+
+1. Clone latest `main` (do not use a stale local copy, another branch, or chat history).
+2. Read `docs/AI_REDEPLOY.md`, `AGENTS.md`, and `docs/ARCHITECTURE.md` (Scheme 1 is the current WAN path).
+3. Ask once for secrets and host facts. Never invent them.
+4. Deploy on Debian 12+ or Ubuntu 22.04+: ensure `git`/`curl` only if needed to clone, write `.env` (confirm `REALITY_DEST` when Reality is on), run `deploy/install-vps.sh` (runs `deploy/bootstrap-host.sh`, Docker/Nginx, default VLESS-Reality / Scheme 1, access-mode) and/or `mac-helper/install.sh`, then verify. Do not ask the user to manually install Docker/Nginx/Xray or edit VPS configs. Do not deploy Scheme 2/3 unless the user explicitly escalates.
+
+Source, names, comments, and UI copy are English. Do not reintroduce former product names.
+
+On this development Mac, all WAN Git/GitHub/SSH/package traffic uses `http://127.0.0.1:7897`.

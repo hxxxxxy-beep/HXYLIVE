@@ -1,0 +1,19 @@
+<header class="header">
+  <div class="header-left">
+    <div class="logo" onclick="window.location.href='/'" style="cursor: pointer;">🎬 HXYLIVE</div>
+    <nav class="header-nav">
+      <a href="/media" class="nav-link" data-page="media">Media</a>
+      <a href="/discover" class="nav-link" data-page="discover">Discover</a>
+    </nav>
+  </div>
+  <div class="header-center" id="headerCenter">
+    <button type="button" class="header-media-log" id="headerMediaLogBtn" title="Open Media activity log" hidden aria-hidden="true" style="display: none;">
+      <span class="header-media-log-label">Log</span>
+      <span class="header-media-log-text" id="headerMediaLogText">No activity yet</span>
+    </button>
+  </div>
+  <div class="header-right" id="headerRight">
+    <a href="/settings" class="settings-btn" title="Settings" style="text-decoration: none; display: flex; align-items: center; justify-content: center; height: 34px; padding: 0 0.75rem; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-primary); font: inherit; font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all 0.3s; white-space: nowrap;">Settings</a>
+    <button type="button" class="settings-btn" id="logoutBtn" title="Log out" hidden style="display: none; align-items: center; justify-content: center; height: 34px; padding: 0 0.75rem; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-primary); font: inherit; font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all 0.3s; white-space: nowrap;">Log out</button>
+  </div>
+</header>

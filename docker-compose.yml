@@ -1,0 +1,86 @@
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ:-UTC}
+    ports:
+      - "127.0.0.1:8191:8191"
+    restart: unless-stopped
+
+  hxylive:
+    build: .
+    container_name: hxylive
+    depends_on:
+      - flaresolverr
+    # Trust X-Forwarded-* from host Nginx (Docker bridge IP, not loopback).
+    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port $${PORT} --proxy-headers --forwarded-allow-ips='*'"]
+
+    environment:
+      - OUTPUT_DIR=/data
+      - STAGING_DIR=/staging
+      - PORT=${PORT:-8080}
+
+      - FFMPEG_PATH=ffmpeg
+
+      - HLS_TIME=${HLS_TIME:-4}
+      - HLS_LIST_SIZE=${HLS_LIST_SIZE:-6}
+
+      - RECORDING_RANGE_CHUNK_SIZE=${RECORDING_RANGE_CHUNK_SIZE:-8388608}
+      - HXYLIVE_DOWNLOAD_LINK_TTL_SECONDS=${HXYLIVE_DOWNLOAD_LINK_TTL_SECONDS:-21600}
+
+      # Chaturbate
+      - CB_RESOLVER_ENABLED=${CB_RESOLVER_ENABLED:-true}
+
+      # DNS
+      - HXYLIVE_DNS_CACHE=${HXYLIVE_DNS_CACHE:-false}
+
+      # Media
+      - HXYLIVE_MEDIA_IMPORTS=${HXYLIVE_MEDIA_IMPORTS:-false}
+
+      # Auto record
+      - AUTO_RECORD_USERS=${AUTO_RECORD_USERS:-}
+
+      # Security
+      - PASSWORD=${PASSWORD:-}
+
+      # Twitch Helix API
+      - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID:-}
+      - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET:-}
+      - TWITCH_GAME_ID=${TWITCH_GAME_ID:-509659}
+
+      # YouTube Data API
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_LIVE_QUERY=${YOUTUBE_LIVE_QUERY:-asmr}
+
+      # Update
+      - HXYLIVE_ALLOW_DOCKER_UPDATE=${HXYLIVE_ALLOW_DOCKER_UPDATE:-false}
+      - HXYLIVE_GITHUB_REPOSITORY=${HXYLIVE_GITHUB_REPOSITORY:-}
+      - HXYLIVE_DOCKER_IMAGE=${HXYLIVE_DOCKER_IMAGE:-}
+
+      # Timezone
+      - TZ=${TZ:-UTC}
+
+      # Chaturbate auth
+      - CHATURBATE_USERNAME=${CHATURBATE_USERNAME:-}
+      - CHATURBATE_PASSWORD=${CHATURBATE_PASSWORD:-}
+
+      # Proxy
+      - HXYLIVE_PROXY_URL=${HXYLIVE_PROXY_URL:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,flaresolverr}
+
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8081}:${PORT:-8080}"
+
+    volumes:
+      # Library + app data on HDD (HOST_DATA_DIR). Hot TS staging on SSD
+      # (HOST_STAGING_DIR). On a single-disk lab host, point both at folders
+      # under the same disk; production uses separate mounts.
+      - ${HOST_DATA_DIR:-./data}:/data
+      - ${HOST_STAGING_DIR:-./data/staging}:/staging
+
+    restart: unless-stopped
