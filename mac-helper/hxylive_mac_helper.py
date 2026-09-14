@@ -1679,38 +1679,44 @@ class Helper:
         Finder usually still has access in the user GUI session.
         Yields paths, or raises RuntimeError when Finder cannot list the folder.
         """
-        proc = subprocess.run(
-            [
-                "/usr/bin/osascript",
-                "-e",
-                "on run argv",
-                "-e",
-                'set rootPath to item 1 of argv',
-                "-e",
-                'tell application "Finder"',
-                "-e",
-                'set targetFolder to (POSIX file rootPath) as alias',
-                "-e",
-                'set out to ""',
-                "-e",
-                'repeat with f in (get every file of entire contents of folder targetFolder)',
-                "-e",
-                'set out to out & (POSIX path of (f as alias)) & linefeed',
-                "-e",
-                "end repeat",
-                "-e",
-                "return out",
-                "-e",
-                "end tell",
-                "-e",
-                "end run",
-                "--",
-                str(root),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        osascript = Path("/usr/bin/osascript")
+        if not osascript.is_file():
+            raise RuntimeError("osascript not available")
+        try:
+            proc = subprocess.run(
+                [
+                    str(osascript),
+                    "-e",
+                    "on run argv",
+                    "-e",
+                    'set rootPath to item 1 of argv',
+                    "-e",
+                    'tell application "Finder"',
+                    "-e",
+                    'set targetFolder to (POSIX file rootPath) as alias',
+                    "-e",
+                    'set out to ""',
+                    "-e",
+                    'repeat with f in (get every file of entire contents of folder targetFolder)',
+                    "-e",
+                    'set out to out & (POSIX path of (f as alias)) & linefeed',
+                    "-e",
+                    "end repeat",
+                    "-e",
+                    "return out",
+                    "-e",
+                    "end tell",
+                    "-e",
+                    "end run",
+                    "--",
+                    str(root),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as exc:
+            raise RuntimeError(f"osascript failed: {exc}") from exc
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip()
             print(f"[mac-helper] Finder scan failed for {root}: {err}", flush=True)
@@ -2440,22 +2446,28 @@ class Helper:
                 print(f"[mac-helper] thumb upload failed: {exc!r}", flush=True)
 
     def _stat_size_via_osascript(self, path: Path):
-        proc = subprocess.run(
-            [
-                "/usr/bin/osascript",
-                "-e",
-                "on run argv",
-                "-e",
-                'tell application "Finder" to get size of ((POSIX file (item 1 of argv)) as alias)',
-                "-e",
-                "end run",
-                "--",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        osascript = Path("/usr/bin/osascript")
+        if not osascript.is_file():
+            return None
+        try:
+            proc = subprocess.run(
+                [
+                    str(osascript),
+                    "-e",
+                    "on run argv",
+                    "-e",
+                    'tell application "Finder" to get size of ((POSIX file (item 1 of argv)) as alias)',
+                    "-e",
+                    "end run",
+                    "--",
+                    str(path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            return None
         if proc.returncode != 0:
             return None
         try:

@@ -10,3 +10,5 @@ aiosqlite==0.19.0
 bcrypt==4.1.2
 psutil==5.9.8
 yt-dlp==2026.6.9
+# Starlette TestClient (CI / unittest); preferred over deprecated httpx import path.
+httpx2==2.12.0
